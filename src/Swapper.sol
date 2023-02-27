@@ -296,34 +296,6 @@ contract Swapper is Owned {
         if (wethBalance > 0) weth9.withdraw(wethBalance);
     }
 
-    /// incentivizes third parties to forward tokenToBeneficiary to beneficiary
-    function forward(address feeRecipient) external payable {
-        if (paused) revert Paused();
-
-        address _tokenToBeneficiary = tokenToBeneficiary;
-        (,, uint32 scaledOfferFactor) = getPoolOverrides(_tokenToBeneficiary, tokenToBeneficiary);
-        if (scaledOfferFactor == 0) {
-            scaledOfferFactor = defaultScaledOfferFactor;
-        }
-
-        bool ethToBeneficiary = (_tokenToBeneficiary == ETH_ADDRESS);
-        uint256 unscaledAmountToBeneficiary =
-            ethToBeneficiary ? address(this).balance : ERC20(_tokenToBeneficiary).balanceOf(address(this));
-        uint256 amountToBeneficiary = unscaledAmountToBeneficiary * scaledOfferFactor / PERCENTAGE_SCALE;
-        // reverts if scaledOfferFactor > PERCENTAGE_SCALE
-        uint256 amountToForwarder = unscaledAmountToBeneficiary - amountToBeneficiary;
-
-        if (ethToBeneficiary) {
-            beneficiary.safeTransferETH(amountToBeneficiary);
-            feeRecipient.safeTransferETH(amountToForwarder);
-        } else {
-            _tokenToBeneficiary.safeTransfer(beneficiary, amountToBeneficiary);
-            _tokenToBeneficiary.safeTransfer(feeRecipient, amountToForwarder);
-        }
-
-        emit Forward(feeRecipient, amountToForwarder, _tokenToBeneficiary, amountToBeneficiary);
-    }
-
     /// incentivizes third parties to withdraw tokenToTrader in return for sending tokenToBeneficiary to beneficiary
     function directSwap(address tokenToTrader, uint128 amountToTrader) external payable {
         if (paused) revert Paused();
@@ -418,14 +390,20 @@ contract Swapper is Owned {
     {
         (address token0, address token1) = _getPoolOverrideParamHelper(_tokenToBeneficiary, tokenToTrader);
         (uint24 fee, uint32 period, uint32 scaledOfferFactor) = _poolOverrides[token0][token1];
+        if (scaledOfferFactor == 0) {
+            scaledOfferFactor = defaultScaledOfferFactor;
+        }
+
+        if (token0 == token1) {
+            // no oracle necessary
+            return amountToTrader * scaledOfferFactor / PERCENTAGE_SCALE;
+        }
+
         if (fee == 0) {
             fee = DEFAULT_FEE;
         }
         if (period == 0) {
             period = defaultPeriod;
-        }
-        if (scaledOfferFactor == 0) {
-            scaledOfferFactor = defaultScaledOfferFactor;
         }
 
         address pool = uniswapV3Factory.getPool(token0, token1, fee);
