@@ -328,11 +328,11 @@ contract Swapper is Owned {
     function directSwap(address tokenToTrader, uint128 amountToTrader) external payable {
         if (paused) revert Paused();
 
-        uint256 amountToBeneficiary = getAmountToBeneficiary(tokenToTrader, amountToTrader);
-
         address _tokenToBeneficiary = tokenToBeneficiary;
-        bool ethToBeneficiary = _tokenToBeneficiary == ETH_ADDRESS;
+        uint256 amountToBeneficiary = _getAmountToBeneficiary(_tokenToBeneficiary, tokenToTrader, amountToTrader);
+
         uint256 excessToBeneficiary;
+        bool ethToBeneficiary = _tokenToBeneficiary == ETH_ADDRESS;
         if (ethToBeneficiary) {
             if (msg.value < amountToBeneficiary) {
                 revert InsufficientFunds_FromTrader();
@@ -370,7 +370,7 @@ contract Swapper is Owned {
 
         emit DirectSwap(
             msg.sender, tokenToTrader, amountToTrader, _tokenToBeneficiary, amountToBeneficiary, excessToBeneficiary
-            );
+        );
     }
 
     /// -----------------------------------------------------------------------
@@ -386,6 +386,36 @@ contract Swapper is Owned {
     /// get amount to beneficiary for a particular trade
     function getAmountToBeneficiary(address tokenToTrader, uint128 amountToTrader) public view returns (uint256) {
         address _tokenToBeneficiary = tokenToBeneficiary;
+        return _getAmountToBeneficiary(_tokenToBeneficiary, tokenToTrader, amountToTrader);
+    }
+
+    /// -----------------------------------------------------------------------
+    /// functions - private & internal
+    /// -----------------------------------------------------------------------
+
+    /// set pool overrides
+    function _setPoolOverride(SetPoolOverrideParams memory params) internal {
+        (address token0, address token1) = _getPoolOverrideParamHelper(params.tokenA, params.tokenB);
+        _poolOverrides[token0][token1] = params.poolOverride;
+    }
+
+    /// pool override param helper
+    function _getPoolOverrideParamHelper(address tokenA, address tokenB)
+        internal
+        pure
+        returns (address token0, address token1)
+    {
+        token0 = (tokenA == ETH_ADDRESS) ? weth9 : tokenA;
+        token1 = (tokenB == ETH_ADDRESS) ? weth9 : tokenB;
+        if (token0 > token1) (token0, token1) = (token1, token0);
+    }
+
+    /// get amount to beneficiary for a particular trade
+    function _getAmountToBeneficiary(address _tokenToBeneficiary, address tokenToTrader, uint128 amountToTrader)
+        internal
+        view
+        returns (uint256)
+    {
         (address token0, address token1) = _getPoolOverrideParamHelper(_tokenToBeneficiary, tokenToTrader);
         (uint24 fee, uint32 period, uint32 scaledOfferFactor) = _poolOverrides[token0][token1];
         if (fee == 0) {
@@ -420,26 +450,5 @@ contract Swapper is Owned {
         });
 
         return unscaledAmountToBeneficiary * scaledOfferFactor / PERCENTAGE_SCALE;
-    }
-
-    /// -----------------------------------------------------------------------
-    /// functions - private & internal
-    /// -----------------------------------------------------------------------
-
-    /// set pool overrides
-    function _setPoolOverride(SetPoolOverrideParams memory params) internal {
-        (address token0, address token1) = _getPoolOverrideParamHelper(params.tokenA, params.tokenB);
-        _poolOverrides[token0][token1] = params.poolOverride;
-    }
-
-    /// pool override param helper
-    function _getPoolOverrideParamHelper(address tokenA, address tokenB)
-        internal
-        pure
-        returns (address token0, address token1)
-    {
-        token0 = (tokenA == ETH_ADDRESS) ? weth9 : tokenA;
-        token1 = (tokenB == ETH_ADDRESS) ? weth9 : tokenB;
-        if (token0 > token1) (token0, token1) = (token1, token0);
     }
 }
