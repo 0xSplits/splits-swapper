@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
+using TokenUtils for address global;
+
 library TokenUtils {
     function getBalance(address addr, address token) internal view returns (uint256) {
         return token.isETH() ? addr.balance : token.balanceOf(addr);

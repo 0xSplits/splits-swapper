@@ -16,8 +16,13 @@ import {TokenUtils} from "./utils/TokenUtils.sol";
 
 /// @title Swapper
 /// @author 0xSplits
-/// @notice TODO
-/// @dev TODO
+/// @notice A contract to trustlessly & automatically convert multi-token
+/// revenue into a single token & push to a beneficiary.
+/// Please be aware, owner has _FULL CONTROL_ of the deployment.
+// TODO: modular oracle
+/// @dev This contract uses uniswap v3 as it's oracle. Be very careful to use
+/// sensible defaults & overrides for desired behavior. Results may otherwise
+/// result in catastrophic loss of funds.
 /// This contract uses token = address(0) to refer to ETH.
 contract Swapper is Owned {
     /// -----------------------------------------------------------------------
@@ -25,7 +30,6 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     using SafeTransferLib for address;
-    using TokenUtils for address;
 
     /// -----------------------------------------------------------------------
     /// errors
@@ -41,6 +45,21 @@ contract Swapper is Owned {
     /// structs
     /// -----------------------------------------------------------------------
 
+    // TODO
+    /* struct ConstructorParams { */
+    /*     IUniswapV3Factory uniswapV3Factory_, */
+    /*     ISwapRouter swapRouter_, */
+    /*     IWETH9 weth9, */
+    /*     address owner; */
+    /*     address beneficiary; */
+    /*     bool paused; */
+    /*     address tokenToBeneficiary; */
+    /*     uint24 defaultFee; */
+    /*     uint32 defaultPeriod; */
+    /*     uint32 defaultScaledOfferFactor; */
+    /*     Swapper.SetPoolOverrideParams[] poolOverrideParams; */
+    /* } */
+
     struct SetPoolOverrideParams {
         address tokenA;
         address tokenB;
@@ -55,7 +74,6 @@ contract Swapper is Owned {
 
     struct Call {
         address target;
-        bool delegate;
         uint256 value;
         bytes callData;
     }
@@ -68,17 +86,6 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
     /// events
     /// -----------------------------------------------------------------------
-
-    event CreateSwapper(
-        address indexed owner,
-        address indexed beneficiary,
-        bool paused,
-        address tokenToBeneficiary,
-        uint24 defaultFee,
-        uint32 defaultPeriod,
-        uint32 defaultScaledOfferFactor,
-        SetPoolOverrideParams[] poolOverrideParams
-    );
 
     event SetBeneficiary(address indexed beneficiary);
     event SetPaused(bool paused);
@@ -173,8 +180,6 @@ contract Swapper is Owned {
     /// constructor
     /// -----------------------------------------------------------------------
 
-    // TODO: use struct param
-
     constructor(
         IUniswapV3Factory uniswapV3Factory_,
         ISwapRouter swapRouter_,
@@ -194,8 +199,7 @@ contract Swapper is Owned {
 
         beneficiary = beneficiary_;
 
-        // TODO: possible to nudge compiler to set all w single SSTORE w/o dropping down to yul?
-        // use uni struct slot trick?
+        // TODO: review SSTORE
         tokenToBeneficiary = tokenToBeneficiary_;
         defaultFee = defaultFee_;
         defaultPeriod = defaultPeriod_;
@@ -212,16 +216,7 @@ contract Swapper is Owned {
             }
         }
 
-        emit CreateSwapper({
-            owner: owner_,
-            beneficiary: beneficiary_,
-            paused: paused_,
-            tokenToBeneficiary: tokenToBeneficiary_,
-            defaultFee: defaultFee_,
-            defaultPeriod: defaultPeriod_,
-            defaultScaledOfferFactor: defaultScaledOfferFactor_,
-            poolOverrideParams: poolOverrideParams
-        });
+        // event emitted by factory
     }
 
     /// -----------------------------------------------------------------------
@@ -307,11 +302,7 @@ contract Swapper is Owned {
         uint256 i;
         for (; i < length;) {
             Call calli = calls[i];
-            if (calli.delegate) {
-                (success, returnData[i]) = calli.target.delegatecall(calli.callData);
-            } else {
-                (success, returnData[i]) = calli.target.call{value: calli.value}(calli.callData);
-            }
+            (success, returnData[i]) = calli.target.call{value: calli.value}(calli.callData);
             require(success, string(returnData[i]));
 
             unchecked {
@@ -319,7 +310,7 @@ contract Swapper is Owned {
             }
         }
 
-        // TODO: any value in including calls?
+        // TODO: include calls?
         emit ExecCalls();
     }
 
@@ -344,8 +335,7 @@ contract Swapper is Owned {
 
     /// incentivizes third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
     function flash(TradeParams[] tradeParams, bytes calldata data) external payable {
-        // TODO: manually unpack storage slot 2 ?
-        // could use uni v3 slot struct trick
+        // TODO: review SLOADs
 
         if (paused) revert Paused();
 
@@ -382,14 +372,13 @@ contract Swapper is Owned {
             }
         }
 
-        // TODO: review params
-        // add factory verification
         ISwapperFlashCallback(msg.sender).swapperFlashCallback({
             tokenToBeneficiary: _tokenToBeneficiary,
             amountToBeneficiary: amountToBeneficiary,
             data: data
         });
 
+        // TODO: review SLOADs
         address _beneficiary = beneficiary;
         uint256 excessToBeneficiary;
         if (_tokenToBeneficiary.isETH()) {
