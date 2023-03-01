@@ -11,6 +11,9 @@ import {IUniswapV3Pool} from "v3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
 import {IWETH9} from "v3-periphery/interfaces/external/IWETH9.sol";
 
+import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
+import {TokenUtils} from "./utils/TokenUtils.sol";
+
 /// @title Swapper
 /// @author 0xSplits
 /// @notice TODO
@@ -22,6 +25,7 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     using SafeTransferLib for address;
+    using TokenUtils for address;
 
     /// -----------------------------------------------------------------------
     /// errors
@@ -56,6 +60,11 @@ contract Swapper is Owned {
         bytes callData;
     }
 
+    struct TradeParams {
+        address token;
+        uint128 amount;
+    }
+
     /// -----------------------------------------------------------------------
     /// events
     /// -----------------------------------------------------------------------
@@ -65,26 +74,30 @@ contract Swapper is Owned {
         address indexed beneficiary,
         bool paused,
         address tokenToBeneficiary,
-        uint32 defaultScaledOfferFactor,
+        uint24 defaultFee,
         uint32 defaultPeriod,
+        uint32 defaultScaledOfferFactor,
         SetPoolOverrideParams[] poolOverrideParams
     );
 
     event SetBeneficiary(address indexed beneficiary);
     event SetPaused(bool paused);
     event SetTokenToBeneficiary(address tokenToBeneficiary);
-    event SetDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor);
+    event SetDefaultFee(uint24 defaultFee);
     event SetDefaultPeriod(uint32 defaultPeriod);
+    event SetDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor);
     event SetPoolOverrides(SetPoolOverrideParams[] poolOverrideParams);
 
     event ExecCalls();
 
     event ReceiveETH(uint256 amount);
-    event Forward(
-        address indexed feeRecipient, uint256 amountToForwarder, address tokenToBeneficiary, uint256 amountToBeneficiary
-    );
-    event DirectSwap(
-        address indexed trader, address tokenToTrader, uint128 amountToTrader, uint256 amountToBeneficiary
+    event PayBack(address indexed payer, uint256 amount);
+    event Flash(
+        address indexed trader,
+        TradeParams[] tradeParams,
+        address tokenToBeneficiary,
+        uint256[] amountsToBeneficiary,
+        uint256 excessToBeneficiary
     );
 
     /// -----------------------------------------------------------------------
@@ -97,7 +110,6 @@ contract Swapper is Owned {
 
     address internal constant ETH_ADDRESS = address(0);
     uint32 internal constant PERCENTAGE_SCALE = 100_00_00; // = 100%
-    uint24 internal constant DEFAULT_FEE = 30_00; // = 0.3%
 
     IUniswapV3Factory public immutable uniswapV3Factory;
     ISwapRouter public immutable swapRouter;
@@ -107,25 +119,52 @@ contract Swapper is Owned {
     /// storage - mutables
     /// -----------------------------------------------------------------------
 
+    /// -----------------------------------------------------------------------
+    /// storage - mutables - slot 0
+    /// -----------------------------------------------------------------------
+
+    /// Owned storage
+
+    /// -----------------------------------------------------------------------
+    /// storage - mutables - slot 1
+    /// -----------------------------------------------------------------------
+
     /// address to receive post-swap tokens
     address public beneficiary;
+
+    /// used to track eth payback in flash
+    uint96 internal payback;
+
+    /// -----------------------------------------------------------------------
+    /// storage - mutables - slot 2
+    /// -----------------------------------------------------------------------
 
     /// token type to send beneficiary
     /// @dev 0x0 used for ETH
     address public tokenToBeneficiary;
 
-    /// scaling factor to oracle pricing for default-whitelisted pools
-    /// @notice offered to incentivize traders
-    /// @dev PERCENTAGE_SCALE = 1e6 = 100% = no discount or premium
+    /// fee for default-whitelisted pools
+    /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100%;
+    /// fee = 30_00 = 0.3% is the uniswap default
+    /// unless overriden, flash will revert if a non-permitted pool fee is used
+    uint24 public defaultFee;
+
+    /// twap duration for default-whitelisted pools
+    /// @dev unless overriden, flash will revert if zero
+    uint32 public defaultPeriod;
+
+    /// scaling factor to oracle pricing for default-whitelisted pools to
+    /// incentivize traders
+    /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100% = no discount or premium
     /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
     uint32 public defaultScaledOfferFactor;
 
-    /// twap duration for default-whitelisted pools
-    /// @dev if zero, directSwap will revert (unless pool overridden w non-zero period)
-    uint32 public defaultPeriod;
-
     /// whether non-owner functions are paused
     bool public paused;
+
+    /// -----------------------------------------------------------------------
+    /// storage - mutables - slot 3
+    /// -----------------------------------------------------------------------
 
     /// owner overrides for uniswap v3 oracle params
     mapping(address => mapping(address => PoolOverride)) internal _poolOverrides;
@@ -133,6 +172,8 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
     /// constructor
     /// -----------------------------------------------------------------------
+
+    // TODO: use struct param
 
     constructor(
         IUniswapV3Factory uniswapV3Factory_,
@@ -142,8 +183,9 @@ contract Swapper is Owned {
         address beneficiary_,
         bool paused_,
         address tokenToBeneficiary_,
-        uint32 defaultScaledOfferFactor_,
+        uint24 defaultFee_,
         uint32 defaultPeriod_,
+        uint32 defaultScaledOfferFactor_,
         SetPoolOverrideParams[] poolOverrideParams
     ) Owned(owner_) {
         uniswapV3Factory = uniswapV3Factory_;
@@ -151,12 +193,18 @@ contract Swapper is Owned {
         weth9 = weth9_;
 
         beneficiary = beneficiary_;
-        paused = paused_;
-        tokenToBeneficiary = tokenToBeneficiary_;
-        defaultScaledOfferFactor = defaultScaledOfferFactor_;
-        defaultPeriod = defaultPeriod_;
 
-        for (uint256 i; i < poolOverrideParams.length;) {
+        // TODO: possible to nudge compiler to set all w single SSTORE w/o dropping down to yul?
+        // use uni struct slot trick?
+        tokenToBeneficiary = tokenToBeneficiary_;
+        defaultFee = defaultFee_;
+        defaultPeriod = defaultPeriod_;
+        defaultScaledOfferFactor = defaultScaledOfferFactor_;
+        paused = paused_;
+
+        uint256 length = poolOverrideParams.length;
+        uint256 i;
+        for (uint256 i; i < length;) {
             _setPoolOverride(poolOverrideParams[i]);
 
             unchecked {
@@ -169,8 +217,9 @@ contract Swapper is Owned {
             beneficiary: beneficiary_,
             paused: paused_,
             tokenToBeneficiary: tokenToBeneficiary_,
-            defaultScaledOfferFactor: defaultScaledOfferFactor_,
+            defaultFee: defaultFee_,
             defaultPeriod: defaultPeriod_,
+            defaultScaledOfferFactor: defaultScaledOfferFactor_,
             poolOverrideParams: poolOverrideParams
         });
     }
@@ -202,32 +251,37 @@ contract Swapper is Owned {
     }
 
     /// set token type to send beneficiary
-    /// @dev 0x0 used for ETH
     function setTokenToBeneficiary(address tokenToBeneficiary_) external onlyOwner {
         tokenToBeneficiary = tokenToBeneficiary_;
 
         emit SetTokenToBeneficiary(tokenToBeneficiary_);
     }
 
-    /// set default offer discount / premium
-    /// @dev PERCENTAGE_SCALE = 1e6 = 100% = no discount / premium
-    function setDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor_) external onlyOwner {
-        defaultScaledOfferFactor = defaultScaledOfferFactor_;
+    /// set default pool fee
+    function setDefaultFee(uint32 defaultFee_) external onlyOwner {
+        defaultFee = defaultFee_;
 
-        emit SetDefaultScaledOfferFactor(defaultScaledOfferFactor_);
+        emit SetDefaultFee(defaultFee_);
     }
 
     /// set default twap period
-    /// @dev if zero, directSwap will revert (unless pool overridden w non-zero period)
     function setDefaultPeriod(uint32 defaultPeriod_) external onlyOwner {
         defaultPeriod = defaultPeriod_;
 
         emit SetDefaultPeriod(defaultPeriod_);
     }
 
+    /// set default offer discount / premium
+    function setDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor_) external onlyOwner {
+        defaultScaledOfferFactor = defaultScaledOfferFactor_;
+
+        emit SetDefaultScaledOfferFactor(defaultScaledOfferFactor_);
+    }
+
     /// set pool overrides
     function setPoolOverrides(SetPoolOverrideParams[] params) external onlyOwner {
-        for (uint256 i; i < params.length;) {
+        uint256 i;
+        for (; i < params.length;) {
             _setPoolOverride(params[i]);
 
             unchecked {
@@ -250,7 +304,8 @@ contract Swapper is Owned {
         returnData = new bytes[](length);
 
         bool success;
-        for (uint256 i; i < length;) {
+        uint256 i;
+        for (; i < length;) {
             Call calli = calls[i];
             if (calli.delegate) {
                 (success, returnData[i]) = calli.target.delegatecall(calli.callData);
@@ -264,7 +319,7 @@ contract Swapper is Owned {
             }
         }
 
-        // TODO
+        // TODO: any value in including calls?
         emit ExecCalls();
     }
 
@@ -278,52 +333,76 @@ contract Swapper is Owned {
         emit ReceiveETH(msg.value);
     }
 
-    /// allows third parties to wrap eth balance if tokenToBeneficiary is not eth
-    function wrapETH() external payable {
-        if (paused) revert Paused();
-        if (tokenToBeneficiary == ETH_ADDRESS) revert Invalid_TokenToBeneficiary();
+    /// allows flash to track eth payback to beneficiary
+    /// @dev if used outside swapperFlashCallback, msg.sender may lose funds
+    /// accumulates until next flash call
+    function payback() external payable {
+        payback += msg.value;
 
-        uint256 ethBalance = address(this).balance;
-        if (ethBalance > 0) weth9.deposit{value: ethBalance}();
+        emit PayBack(msg.sender, msg.value);
     }
 
-    /// allows third parties to unwrap weth balance if tokenToBeneficiary is not weth
-    function unwrapETH() external payable {
-        if (paused) revert Paused();
-        if (tokenToBeneficiary == weth9) revert Invalid_TokenToBeneficiary();
+    /// incentivizes third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
+    function flash(TradeParams[] tradeParams, bytes calldata data) external payable {
+        // TODO: manually unpack storage slot 2 ?
+        // could use uni v3 slot struct trick
 
-        uint256 wethBalance = weth9.balanceOf(address(this));
-        if (wethBalance > 0) weth9.withdraw(wethBalance);
-    }
-
-    /// incentivizes third parties to withdraw tokenToTrader in return for sending tokenToBeneficiary to beneficiary
-    function directSwap(address tokenToTrader, uint128 amountToTrader) external payable {
         if (paused) revert Paused();
 
         address _tokenToBeneficiary = tokenToBeneficiary;
-        uint256 amountToBeneficiary = _getAmountToBeneficiary(_tokenToBeneficiary, tokenToTrader, amountToTrader);
+        uint256 length = tradeParams.length;
+        uint256 amountsToBeneficiary = new uint256[](length);
+        {
+            uint256 _amountToBeneficiary;
+            uint128 amountToTrader;
+            address tokenToTrader;
+            uint256 i;
+            for (; i < length;) {
+                tokenToTrader = tradeParams.token[i];
+                amountToTrader = tradeParams.amount[i];
 
+                // TODO: is error message worth the extra gas?
+                if (amountToTrader > address(this).getBalance(tokenToTrader)) {
+                    revert InsufficientFunds_InContract();
+                }
+
+                _amountToBeneficiary = _getAmountToBeneficiary(_tokenToBeneficiary, tokenToTrader, amountToTrader);
+                amountsToBeneficiary[i] = _amountToBeneficiary;
+                amountToBeneficiary += _amountToBeneficiary;
+
+                if (tokenToTrader.isETH()) {
+                    msg.sender.safeTransferETH(amountToTrader);
+                } else {
+                    tokenToTrader.safeTransfer(msg.sender, amountToTrader);
+                }
+
+                unchecked {
+                    ++i;
+                }
+            }
+        }
+
+        // TODO: review params
+        // add factory verification
+        ISwapperFlashCallback(msg.sender).swapperFlashCallback({
+            tokenToBeneficiary: _tokenToBeneficiary,
+            amountToBeneficiary: amountToBeneficiary,
+            data: data
+        });
+
+        address _beneficiary = beneficiary;
         uint256 excessToBeneficiary;
-        bool ethToBeneficiary = _tokenToBeneficiary == ETH_ADDRESS;
-        if (ethToBeneficiary) {
-            if (msg.value < amountToBeneficiary) {
+        if (_tokenToBeneficiary.isETH()) {
+            if (payback < amountToBeneficiary) {
                 revert InsufficientFunds_FromTrader();
             }
-            uint256 traderRefund = msg.value - amountToBeneficiary;
+            payback = 0;
 
-            // flush eth from trader & excess eth in contract to beneficiary
+            // send eth to beneficiary
             uint256 ethBalance = address(this).balance;
-            uint256 totalToBeneficiary = ethBalance - traderRefund;
-            beneficiary.safeTransferETH(totalToBeneficiary);
-            excessToBeneficiary = ethBalance - msg.value;
-
-            // refund trader excess value
-            if (traderRefund > 0) {
-                // funds already sent to beneficiary; no re-entrancy risk
-                msg.sender.safeTransferETH(traderRefund);
-            }
+            excessToBeneficiary = ethBalance - amountToBeneficiary;
+            _beneficiary.safeTransferETH(ethBalance);
         } else {
-            address _beneficiary = beneficiary;
             _tokenToBeneficiary.safeTransferFrom(msg.sender, _beneficiary, amountToBeneficiary);
 
             // flush excess tokenToBeneficiary to beneficiary
@@ -333,16 +412,7 @@ contract Swapper is Owned {
             }
         }
 
-        bool ethToTrader = tokenToTrader == ETH_ADDRESS;
-        if (ethToTrader) {
-            msg.sender.safeTransferETH(amountToTrader);
-        } else {
-            tokenToTrader.safeTransfer(msg.sender, amountToTrader);
-        }
-
-        emit DirectSwap(
-            msg.sender, tokenToTrader, amountToTrader, _tokenToBeneficiary, amountToBeneficiary, excessToBeneficiary
-        );
+        emit Flash(msg.sender, tradeParams, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
     }
 
     /// -----------------------------------------------------------------------
@@ -377,8 +447,8 @@ contract Swapper is Owned {
         pure
         returns (address token0, address token1)
     {
-        token0 = (tokenA == ETH_ADDRESS) ? weth9 : tokenA;
-        token1 = (tokenB == ETH_ADDRESS) ? weth9 : tokenB;
+        token0 = tokenA.isETH() ? weth9 : tokenA;
+        token1 = tokenB.isETH() ? weth9 : tokenB;
         if (token0 > token1) (token0, token1) = (token1, token0);
     }
 
@@ -400,7 +470,7 @@ contract Swapper is Owned {
         }
 
         if (fee == 0) {
-            fee = DEFAULT_FEE;
+            fee = defaultFee;
         }
         if (period == 0) {
             period = defaultPeriod;
@@ -413,12 +483,6 @@ contract Swapper is Owned {
 
         // reverts if period is zero or > oldest observation
         (int24 arithmeticMeanTick,) = OracleLibrary.consult({pool: pool, period: period});
-
-        bool ethToTrader = tokenToTrader == ETH_ADDRESS;
-        uint256 amountInContract = ethToTrader ? address(this).balance : ERC20(tokenToTrader).balanceOf(address(this));
-        if (amountToTrader > amountInContract) {
-            revert InsufficientFunds_InContract();
-        }
 
         uint256 unscaledAmountToBeneficiary = OracleLibrary.getQuoteAtTick({
             tick: arithmeticMeanTick,
