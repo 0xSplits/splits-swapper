@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
+import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
+
 import {Swapper} from "./Swapper.sol";
 
 /// @title SwapperFactory
@@ -27,7 +29,7 @@ contract SwapperFactory {
     /// events
     /// -----------------------------------------------------------------------
 
-    event CreateSwapper(address indexed swapper, CreateSwapperParams params);
+    event CreateSwapper(Swapper indexed swapper, CreateSwapperParams params);
 
     /// -----------------------------------------------------------------------
     /// storage
@@ -38,23 +40,21 @@ contract SwapperFactory {
     /// -----------------------------------------------------------------------
 
     IUniswapV3Factory public immutable uniswapV3Factory;
-    ISwapRouter public immutable swapRouter;
-    IWETH9 public immutable weth9;
+    address public immutable weth9;
 
     /// -----------------------------------------------------------------------
     /// storage - mutables
     /// -----------------------------------------------------------------------
 
     /// mapping of canonical swappers for flash callback validation
-    mapping(address => bool) public isSwapper;
+    mapping(Swapper => bool) public isSwapper;
 
     /// -----------------------------------------------------------------------
     /// constructor
     /// -----------------------------------------------------------------------
 
-    constructor(IUniswapV3Factory uniswapV3Factory_, ISwapRouter swapRouter_, IWETH9 weth9) {
+    constructor(IUniswapV3Factory uniswapV3Factory_, address weth9_) {
         uniswapV3Factory = uniswapV3Factory_;
-        swapRouter = swapRouter_;
         weth9 = weth9_;
     }
 
@@ -66,10 +66,9 @@ contract SwapperFactory {
     /// functions - public & external
     /// -----------------------------------------------------------------------
 
-    function createSwapper(CreateSwapperParams params) external returns (address swapper) {
+    function createSwapper(CreateSwapperParams calldata params) external returns (Swapper swapper) {
         swapper = new Swapper({
             uniswapV3Factory_: uniswapV3Factory,
-            swapRouter_: swapRouter,
             weth9_: weth9,
             owner_: params.owner,
             beneficiary_: params.beneficiary,

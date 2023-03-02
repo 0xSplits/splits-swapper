@@ -4,12 +4,9 @@ pragma solidity ^0.8.17;
 import {Owned} from "solmate/auth/Owned.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {OracleLibrary} from "v3-periphery/libraries/OracleLibrary.sol";
-import {UniswapV3Pool} from "v3-core/UniswapV3Pool.sol";
-import {IUniswapV3Pool} from "v3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
-import {IWETH9} from "v3-periphery/interfaces/external/IWETH9.sol";
 
 import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
 import {TokenUtils} from "./utils/TokenUtils.sol";
@@ -30,6 +27,8 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     using SafeTransferLib for address;
+    using SafeCastLib for uint256;
+    using TokenUtils for address;
 
     /// -----------------------------------------------------------------------
     /// errors
@@ -48,8 +47,6 @@ contract Swapper is Owned {
     // TODO
     /* struct ConstructorParams { */
     /*     IUniswapV3Factory uniswapV3Factory_, */
-    /*     ISwapRouter swapRouter_, */
-    /*     IWETH9 weth9, */
     /*     address owner; */
     /*     address beneficiary; */
     /*     bool paused; */
@@ -115,12 +112,10 @@ contract Swapper is Owned {
     /// storage - constants & immutables
     /// -----------------------------------------------------------------------
 
-    address internal constant ETH_ADDRESS = address(0);
     uint32 internal constant PERCENTAGE_SCALE = 100_00_00; // = 100%
 
     IUniswapV3Factory public immutable uniswapV3Factory;
-    ISwapRouter public immutable swapRouter;
-    IWETH9 public immutable weth9;
+    address public immutable weth9;
 
     /// -----------------------------------------------------------------------
     /// storage - mutables
@@ -140,7 +135,7 @@ contract Swapper is Owned {
     address public beneficiary;
 
     /// used to track eth payback in flash
-    uint96 internal payback;
+    uint96 internal _payback;
 
     /// -----------------------------------------------------------------------
     /// storage - mutables - slot 2
@@ -182,8 +177,7 @@ contract Swapper is Owned {
 
     constructor(
         IUniswapV3Factory uniswapV3Factory_,
-        ISwapRouter swapRouter_,
-        IWETH9 weth9,
+        address weth9_,
         address owner_,
         address beneficiary_,
         bool paused_,
@@ -191,10 +185,9 @@ contract Swapper is Owned {
         uint24 defaultFee_,
         uint32 defaultPeriod_,
         uint32 defaultScaledOfferFactor_,
-        SetPoolOverrideParams[] poolOverrideParams
+        SetPoolOverrideParams[] memory poolOverrideParams
     ) Owned(owner_) {
         uniswapV3Factory = uniswapV3Factory_;
-        swapRouter = swapRouter_;
         weth9 = weth9_;
 
         beneficiary = beneficiary_;
@@ -208,7 +201,7 @@ contract Swapper is Owned {
 
         uint256 length = poolOverrideParams.length;
         uint256 i;
-        for (uint256 i; i < length;) {
+        for (; i < length;) {
             _setPoolOverride(poolOverrideParams[i]);
 
             unchecked {
@@ -253,7 +246,7 @@ contract Swapper is Owned {
     }
 
     /// set default pool fee
-    function setDefaultFee(uint32 defaultFee_) external onlyOwner {
+    function setDefaultFee(uint24 defaultFee_) external onlyOwner {
         defaultFee = defaultFee_;
 
         emit SetDefaultFee(defaultFee_);
@@ -274,7 +267,7 @@ contract Swapper is Owned {
     }
 
     /// set pool overrides
-    function setPoolOverrides(SetPoolOverrideParams[] params) external onlyOwner {
+    function setPoolOverrides(SetPoolOverrideParams[] calldata params) external onlyOwner {
         uint256 i;
         for (; i < params.length;) {
             _setPoolOverride(params[i]);
@@ -301,7 +294,8 @@ contract Swapper is Owned {
         bool success;
         uint256 i;
         for (; i < length;) {
-            Call calli = calls[i];
+            // TODO: calldata vs memory?
+            Call calldata calli = calls[i];
             (success, returnData[i]) = calli.target.call{value: calli.value}(calli.callData);
             require(success, string(returnData[i]));
 
@@ -328,28 +322,30 @@ contract Swapper is Owned {
     /// @dev if used outside swapperFlashCallback, msg.sender may lose funds
     /// accumulates until next flash call
     function payback() external payable {
-        payback += msg.value;
+        _payback += msg.value.toUint96();
 
         emit PayBack(msg.sender, msg.value);
     }
 
     /// incentivizes third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(TradeParams[] tradeParams, bytes calldata data) external payable {
+    function flash(TradeParams[] calldata tradeParams, bytes calldata data) external payable {
         // TODO: review SLOADs
 
         if (paused) revert Paused();
 
         address _tokenToBeneficiary = tokenToBeneficiary;
+        uint256 amountToBeneficiary;
         uint256 length = tradeParams.length;
-        uint256 amountsToBeneficiary = new uint256[](length);
+        uint256[] memory amountsToBeneficiary = new uint256[](length);
         {
             uint256 _amountToBeneficiary;
             uint128 amountToTrader;
             address tokenToTrader;
             uint256 i;
             for (; i < length;) {
-                tokenToTrader = tradeParams.token[i];
-                amountToTrader = tradeParams.amount[i];
+                TradeParams calldata tp = tradeParams[i];
+                tokenToTrader = tp.token;
+                amountToTrader = tp.amount;
 
                 // TODO: is error message worth the extra gas?
                 if (amountToTrader > address(this).getBalance(tokenToTrader)) {
@@ -382,10 +378,10 @@ contract Swapper is Owned {
         address _beneficiary = beneficiary;
         uint256 excessToBeneficiary;
         if (_tokenToBeneficiary.isETH()) {
-            if (payback < amountToBeneficiary) {
+            if (_payback < amountToBeneficiary) {
                 revert InsufficientFunds_FromTrader();
             }
-            payback = 0;
+            _payback = 0;
 
             // send eth to beneficiary
             uint256 ethBalance = address(this).balance;
@@ -409,7 +405,7 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     /// get pool overrides
-    function getPoolOverrides(address tokenA, address tokenB) public view returns (PoolOverride) {
+    function getPoolOverrides(address tokenA, address tokenB) public view returns (PoolOverride memory) {
         (address token0, address token1) = _getPoolOverrideParamHelper(tokenA, tokenB);
         return _poolOverrides[token0][token1];
     }
@@ -433,7 +429,7 @@ contract Swapper is Owned {
     /// pool override param helper
     function _getPoolOverrideParamHelper(address tokenA, address tokenB)
         internal
-        pure
+        view
         returns (address token0, address token1)
     {
         token0 = tokenA.isETH() ? weth9 : tokenA;
@@ -448,30 +444,30 @@ contract Swapper is Owned {
         returns (uint256)
     {
         (address token0, address token1) = _getPoolOverrideParamHelper(_tokenToBeneficiary, tokenToTrader);
-        (uint24 fee, uint32 period, uint32 scaledOfferFactor) = _poolOverrides[token0][token1];
-        if (scaledOfferFactor == 0) {
-            scaledOfferFactor = defaultScaledOfferFactor;
+        PoolOverride memory po = _poolOverrides[token0][token1];
+        if (po.scaledOfferFactor == 0) {
+            po.scaledOfferFactor = defaultScaledOfferFactor;
         }
 
         if (token0 == token1) {
             // no oracle necessary
-            return amountToTrader * scaledOfferFactor / PERCENTAGE_SCALE;
+            return amountToTrader * po.scaledOfferFactor / PERCENTAGE_SCALE;
         }
 
-        if (fee == 0) {
-            fee = defaultFee;
+        if (po.fee == 0) {
+            po.fee = defaultFee;
         }
-        if (period == 0) {
-            period = defaultPeriod;
+        if (po.period == 0) {
+            po.period = defaultPeriod;
         }
 
-        address pool = uniswapV3Factory.getPool(token0, token1, fee);
+        address pool = uniswapV3Factory.getPool(token0, token1, po.fee);
         if (pool == address(0)) {
             revert Pool_DoesNotExist();
         }
 
         // reverts if period is zero or > oldest observation
-        (int24 arithmeticMeanTick,) = OracleLibrary.consult({pool: pool, period: period});
+        (int24 arithmeticMeanTick,) = OracleLibrary.consult({pool: pool, secondsAgo: po.period});
 
         uint256 unscaledAmountToBeneficiary = OracleLibrary.getQuoteAtTick({
             tick: arithmeticMeanTick,
@@ -480,6 +476,6 @@ contract Swapper is Owned {
             quoteToken: _tokenToBeneficiary
         });
 
-        return unscaledAmountToBeneficiary * scaledOfferFactor / PERCENTAGE_SCALE;
+        return unscaledAmountToBeneficiary * po.scaledOfferFactor / PERCENTAGE_SCALE;
     }
 }

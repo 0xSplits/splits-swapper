@@ -2,6 +2,7 @@
 pragma solidity ^0.8.17;
 
 import "../SwapperFactory.sol";
+import "../Swapper.sol";
 
 /// @title SwapperCallbackValidation
 /// @author 0xSplits
@@ -12,7 +13,7 @@ library SwapperCallbackValidation {
     /// @param factory Address of SwapperFactory
     /// @param swapper Address of swapper to validate
     /// @return valid Boolean of whether swapper address is valid
-    function verifyCallback(address factory, address swapper) internal view returns (bool valid) {
+    function verifyCallback(SwapperFactory factory, Swapper swapper) internal view returns (bool valid) {
         return factory.isSwapper(swapper);
     }
 }
