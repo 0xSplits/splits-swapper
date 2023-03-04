@@ -5,21 +5,20 @@ import {Owned} from "solmate/auth/Owned.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {OracleLibrary} from "v3-periphery/libraries/OracleLibrary.sol";
-import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
 
-import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
-import {TokenUtils} from "./utils/TokenUtils.sol";
+import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
+import {ISwapperOracle} from "src/interfaces/ISwapperOracle.sol";
+import {ISwapperReadOnly} from "src/interfaces/ISwapperReadOnly.sol";
+import {TokenUtils} from "src/utils/TokenUtils.sol";
 
 /// @title Swapper
 /// @author 0xSplits
 /// @notice A contract to trustlessly & automatically convert multi-token
 /// revenue into a single token & push to a beneficiary.
 /// Please be aware, owner has _FULL CONTROL_ of the deployment.
-// TODO: modular oracle
-/// @dev This contract uses uniswap v3 as it's oracle. Be very careful to use
-/// sensible defaults & overrides for desired behavior. Results may otherwise
-/// result in catastrophic loss of funds.
+/// @dev This contract uses a modular oracle. Be very careful to use a secure
+/// oracle with sensible defaults & overrides for desired behavior. Otherwise
+/// may result in catastrophic loss of funds.
 /// This contract uses token = address(0) to refer to ETH.
 contract Swapper is Owned {
     /// -----------------------------------------------------------------------
@@ -35,38 +34,27 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     error Paused();
-    error Invalid_TokenToBeneficiary();
+    error UnsupportedFile();
+    error UnsupportedOracleFile();
+    error Invalid_AmountsToBeneficiary();
     error InsufficientFunds_InContract();
     error InsufficientFunds_FromTrader();
-    error Pool_DoesNotExist();
 
     /// -----------------------------------------------------------------------
     /// structs
     /// -----------------------------------------------------------------------
 
-    // TODO
-    /* struct ConstructorParams { */
-    /*     IUniswapV3Factory uniswapV3Factory_, */
-    /*     address owner; */
-    /*     address beneficiary; */
-    /*     bool paused; */
-    /*     address tokenToBeneficiary; */
-    /*     uint24 defaultFee; */
-    /*     uint32 defaultPeriod; */
-    /*     uint32 defaultScaledOfferFactor; */
-    /*     Swapper.SetPoolOverrideParams[] poolOverrideParams; */
-    /* } */
-
-    struct SetPoolOverrideParams {
-        address tokenA;
-        address tokenB;
-        PoolOverride poolOverride;
+    enum FileType {
+        NotSupported,
+        Beneficiary,
+        TokenToBeneficiary,
+        Oracle,
+        OracleFile
     }
 
-    struct PoolOverride {
-        uint24 fee;
-        uint32 period;
-        uint32 scaledOfferFactor;
+    struct File {
+        FileType what;
+        bytes data;
     }
 
     struct Call {
@@ -84,15 +72,10 @@ contract Swapper is Owned {
     /// events
     /// -----------------------------------------------------------------------
 
-    event SetBeneficiary(address indexed beneficiary);
     event SetPaused(bool paused);
-    event SetTokenToBeneficiary(address tokenToBeneficiary);
-    event SetDefaultFee(uint24 defaultFee);
-    event SetDefaultPeriod(uint32 defaultPeriod);
-    event SetDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor);
-    event SetPoolOverrides(SetPoolOverrideParams[] poolOverrideParams);
+    event FilesUpdated(File[] files);
 
-    event ExecCalls();
+    event ExecCalls(Call[] calls);
 
     event ReceiveETH(uint256 amount);
     event PayBack(address indexed payer, uint256 amount);
@@ -109,15 +92,6 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     /// -----------------------------------------------------------------------
-    /// storage - constants & immutables
-    /// -----------------------------------------------------------------------
-
-    uint32 internal constant PERCENTAGE_SCALE = 100_00_00; // = 100%
-
-    IUniswapV3Factory public immutable uniswapV3Factory;
-    address public immutable weth9;
-
-    /// -----------------------------------------------------------------------
     /// storage - mutables
     /// -----------------------------------------------------------------------
 
@@ -126,6 +100,10 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     /// Owned storage
+    /// address public owner;
+    /// 20 bytes
+
+    /// 12 bytes free
 
     /// -----------------------------------------------------------------------
     /// storage - mutables - slot 1
@@ -133,9 +111,13 @@ contract Swapper is Owned {
 
     /// address to receive post-swap tokens
     address public beneficiary;
+    /// 20 bytes
 
     /// used to track eth payback in flash
     uint96 internal _payback;
+    /// 12 bytes
+
+    /// 0 bytes free
 
     /// -----------------------------------------------------------------------
     /// storage - mutables - slot 2
@@ -144,72 +126,32 @@ contract Swapper is Owned {
     /// token type to send beneficiary
     /// @dev 0x0 used for ETH
     address public tokenToBeneficiary;
-
-    /// fee for default-whitelisted pools
-    /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100%;
-    /// fee = 30_00 = 0.3% is the uniswap default
-    /// unless overriden, flash will revert if a non-permitted pool fee is used
-    uint24 public defaultFee;
-
-    /// twap duration for default-whitelisted pools
-    /// @dev unless overriden, flash will revert if zero
-    uint32 public defaultPeriod;
-
-    /// scaling factor to oracle pricing for default-whitelisted pools to
-    /// incentivize traders
-    /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100% = no discount or premium
-    /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
-    uint32 public defaultScaledOfferFactor;
+    /// 20 bytes
 
     /// whether non-owner functions are paused
     bool public paused;
+    /// 1 byte
+
+    /// 11 bytes free
 
     /// -----------------------------------------------------------------------
     /// storage - mutables - slot 3
     /// -----------------------------------------------------------------------
 
     /// owner overrides for uniswap v3 oracle params
-    mapping(address => mapping(address => PoolOverride)) internal _poolOverrides;
+    ISwapperOracle public oracle;
+    /// 20 bytes
+
+    /// 12 bytes free
 
     /// -----------------------------------------------------------------------
     /// constructor
     /// -----------------------------------------------------------------------
 
-    constructor(
-        IUniswapV3Factory uniswapV3Factory_,
-        address weth9_,
-        address owner_,
-        address beneficiary_,
-        bool paused_,
-        address tokenToBeneficiary_,
-        uint24 defaultFee_,
-        uint32 defaultPeriod_,
-        uint32 defaultScaledOfferFactor_,
-        SetPoolOverrideParams[] memory poolOverrideParams
-    ) Owned(owner_) {
-        uniswapV3Factory = uniswapV3Factory_;
-        weth9 = weth9_;
-
-        beneficiary = beneficiary_;
-
-        // TODO: review SSTORE
-        tokenToBeneficiary = tokenToBeneficiary_;
-        defaultFee = defaultFee_;
-        defaultPeriod = defaultPeriod_;
-        defaultScaledOfferFactor = defaultScaledOfferFactor_;
+    constructor(address owner_, bool paused_, File[] memory files) Owned(owner_) {
         paused = paused_;
-
-        uint256 length = poolOverrideParams.length;
-        uint256 i;
-        for (; i < length;) {
-            _setPoolOverride(poolOverrideParams[i]);
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        // event emitted by factory
+        _file(files);
+        // event in factory
     }
 
     /// -----------------------------------------------------------------------
@@ -227,57 +169,13 @@ contract Swapper is Owned {
     /// set paused
     function setPaused(bool paused_) external onlyOwner {
         paused = paused_;
-
         emit SetPaused(paused_);
     }
 
-    /// set beneficiary
-    function setBeneficiary(address beneficiary_) external onlyOwner {
-        beneficiary = beneficiary_;
-
-        emit SetBeneficiary(beneficiary_);
-    }
-
-    /// set token type to send beneficiary
-    function setTokenToBeneficiary(address tokenToBeneficiary_) external onlyOwner {
-        tokenToBeneficiary = tokenToBeneficiary_;
-
-        emit SetTokenToBeneficiary(tokenToBeneficiary_);
-    }
-
-    /// set default pool fee
-    function setDefaultFee(uint24 defaultFee_) external onlyOwner {
-        defaultFee = defaultFee_;
-
-        emit SetDefaultFee(defaultFee_);
-    }
-
-    /// set default twap period
-    function setDefaultPeriod(uint32 defaultPeriod_) external onlyOwner {
-        defaultPeriod = defaultPeriod_;
-
-        emit SetDefaultPeriod(defaultPeriod_);
-    }
-
-    /// set default offer discount / premium
-    function setDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor_) external onlyOwner {
-        defaultScaledOfferFactor = defaultScaledOfferFactor_;
-
-        emit SetDefaultScaledOfferFactor(defaultScaledOfferFactor_);
-    }
-
-    /// set pool overrides
-    function setPoolOverrides(SetPoolOverrideParams[] calldata params) external onlyOwner {
-        uint256 i;
-        for (; i < params.length;) {
-            _setPoolOverride(params[i]);
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        emit SetPoolOverrides(params);
+    /// update storage
+    function file(File[] calldata files) external onlyOwner {
+        _file(files);
+        emit FilesUpdated(files);
     }
 
     /// allow owner to execute arbitrary calls from swapper
@@ -304,8 +202,7 @@ contract Swapper is Owned {
             }
         }
 
-        // TODO: include calls?
-        emit ExecCalls();
+        emit ExecCalls(calls);
     }
 
     /// -----------------------------------------------------------------------
@@ -328,17 +225,20 @@ contract Swapper is Owned {
     }
 
     /// incentivizes third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(TradeParams[] calldata tradeParams, bytes calldata data) external payable {
-        // TODO: review SLOADs
-
+    function flash(TradeParams[] calldata tradeParams, bytes calldata oracleData, bytes calldata callbackData)
+        external
+        payable
+    {
         if (paused) revert Paused();
 
         address _tokenToBeneficiary = tokenToBeneficiary;
         uint256 amountToBeneficiary;
         uint256 length = tradeParams.length;
-        uint256[] memory amountsToBeneficiary = new uint256[](length);
+        // explicitly wrap in staticcall to prevent state mod from oracle delegatecall
+        uint256[] memory amountsToBeneficiary =
+            ISwapperReadOnly(address(this)).getAmountsToBeneficiary(_tokenToBeneficiary, tradeParams, oracleData);
+        if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
         {
-            uint256 _amountToBeneficiary;
             uint128 amountToTrader;
             address tokenToTrader;
             uint256 i;
@@ -347,14 +247,11 @@ contract Swapper is Owned {
                 tokenToTrader = tp.token;
                 amountToTrader = tp.amount;
 
-                // TODO: is error message worth the extra gas?
                 if (amountToTrader > address(this).getBalance(tokenToTrader)) {
                     revert InsufficientFunds_InContract();
                 }
 
-                _amountToBeneficiary = _getAmountToBeneficiary(_tokenToBeneficiary, tokenToTrader, amountToTrader);
-                amountsToBeneficiary[i] = _amountToBeneficiary;
-                amountToBeneficiary += _amountToBeneficiary;
+                amountToBeneficiary += amountsToBeneficiary[i];
 
                 if (tokenToTrader.isETH()) {
                     msg.sender.safeTransferETH(amountToTrader);
@@ -371,10 +268,9 @@ contract Swapper is Owned {
         ISwapperFlashCallback(msg.sender).swapperFlashCallback({
             tokenToBeneficiary: _tokenToBeneficiary,
             amountToBeneficiary: amountToBeneficiary,
-            data: data
+            data: callbackData
         });
 
-        // TODO: review SLOADs
         address _beneficiary = beneficiary;
         uint256 excessToBeneficiary;
         if (_tokenToBeneficiary.isETH()) {
@@ -404,78 +300,99 @@ contract Swapper is Owned {
     /// functions - public & external - views
     /// -----------------------------------------------------------------------
 
-    /// get pool overrides
-    function getPoolOverrides(address tokenA, address tokenB) public view returns (PoolOverride memory) {
-        (address token0, address token1) = _getPoolOverrideParamHelper(tokenA, tokenB);
-        return _poolOverrides[token0][token1];
+    /// !!! ATTENTION !!!
+    ///
+    /// Due to the modular nature of ISwapperOracle & the resulting uses of delegatecall below,
+    /// these functions cannot be marked as view in this file and _should not be called without
+    /// first wrapping the Swapper inside ISwapperReadOnly_ to coerce solidity to use staticcall
+    /// to prevent unexpected and unwanted state modification
+
+    /// get storage
+    function getFile(File calldata incoming) external returns (bytes memory b) {
+        FileType what = incoming.what;
+        bytes memory data = incoming.data;
+
+        if (what == FileType.Beneficiary) {
+            b = abi.encode(beneficiary);
+        } else if (what == FileType.TokenToBeneficiary) {
+            b = abi.encode(tokenToBeneficiary);
+        } else if (what == FileType.Oracle) {
+            b = abi.encode(oracle);
+        } else if (what == FileType.OracleFile) {
+            (bool success, bytes memory returnOrRevertData) = address(oracle).delegatecall(
+                abi.encodeCall(ISwapperOracle.getFile, (abi.decode(data, (ISwapperOracle.File))))
+            );
+            if (!success) revert UnsupportedOracleFile();
+            return returnOrRevertData;
+        } else {
+            revert UnsupportedFile();
+        }
     }
 
-    /// get amount to beneficiary for a particular trade
-    function getAmountToBeneficiary(address tokenToTrader, uint128 amountToTrader) public view returns (uint256) {
-        address _tokenToBeneficiary = tokenToBeneficiary;
-        return _getAmountToBeneficiary(_tokenToBeneficiary, tokenToTrader, amountToTrader);
+    /// get amounts to beneficiary for a set of trades
+    /// @dev call via ISwapperReadOnly to prevent state mod
+    function getAmountsToBeneficiary(TradeParams[] calldata tradeParams, bytes calldata data)
+        external
+        returns (uint256[] memory)
+    {
+        return _getAmountsToBeneficiary(tokenToBeneficiary, tradeParams, data);
+    }
+
+    /// get amounts to beneficiary for a set of trades
+    /// @dev call via ISwapperReadOnly to prevent state mod
+    function getAmountsToBeneficiary(
+        address _tokenToBeneficiary,
+        TradeParams[] calldata tradeParams,
+        bytes calldata data
+    ) external returns (uint256[] memory) {
+        return _getAmountsToBeneficiary(_tokenToBeneficiary, tradeParams, data);
     }
 
     /// -----------------------------------------------------------------------
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
-    /// set pool overrides
-    function _setPoolOverride(SetPoolOverrideParams memory params) internal {
-        (address token0, address token1) = _getPoolOverrideParamHelper(params.tokenA, params.tokenB);
-        _poolOverrides[token0][token1] = params.poolOverride;
+    /// update storage
+    function _file(File[] memory files) internal {
+        uint256 i;
+        uint256 length = files.length;
+        for (; i < length;) {
+            File memory f = files[i];
+            FileType what = f.what;
+            bytes memory data = f.data;
+
+            if (what == FileType.Beneficiary) {
+                beneficiary = abi.decode(data, (address));
+            } else if (what == FileType.TokenToBeneficiary) {
+                tokenToBeneficiary = abi.decode(data, (address));
+            } else if (what == FileType.Oracle) {
+                oracle = abi.decode(data, (ISwapperOracle));
+            } else if (what == FileType.OracleFile) {
+                (bool success,) = address(oracle).delegatecall(
+                    abi.encodeCall(ISwapperOracle.file, (abi.decode(data, (ISwapperOracle.File))))
+                );
+                if (!success) revert UnsupportedOracleFile();
+            } else {
+                revert UnsupportedFile();
+            }
+        }
     }
 
-    /// pool override param helper
-    function _getPoolOverrideParamHelper(address tokenA, address tokenB)
-        internal
-        view
-        returns (address token0, address token1)
-    {
-        token0 = tokenA.isETH() ? weth9 : tokenA;
-        token1 = tokenB.isETH() ? weth9 : tokenB;
-        if (token0 > token1) (token0, token1) = (token1, token0);
-    }
-
-    /// get amount to beneficiary for a particular trade
-    function _getAmountToBeneficiary(address _tokenToBeneficiary, address tokenToTrader, uint128 amountToTrader)
-        internal
-        view
-        returns (uint256)
-    {
-        (address token0, address token1) = _getPoolOverrideParamHelper(_tokenToBeneficiary, tokenToTrader);
-        PoolOverride memory po = _poolOverrides[token0][token1];
-        if (po.scaledOfferFactor == 0) {
-            po.scaledOfferFactor = defaultScaledOfferFactor;
+    /// get amounts to beneficiary for a set of trades
+    function _getAmountsToBeneficiary(
+        address _tokenToBeneficiary,
+        TradeParams[] calldata tradeParams,
+        bytes calldata data
+    ) internal returns (uint256[] memory amountsToBeneficiary) {
+        Swapper.TradeParams[] memory tps = tradeParams;
+        (bool success, bytes memory returnOrRevertData) = address(oracle).delegatecall(
+            abi.encodeCall(ISwapperOracle.getAmountsToBeneficiary, (_tokenToBeneficiary, tps, data))
+        );
+        if (!success) {
+            assembly {
+                revert(add(returnOrRevertData, 0x20), mload(returnOrRevertData))
+            }
         }
-
-        if (token0 == token1) {
-            // no oracle necessary
-            return amountToTrader * po.scaledOfferFactor / PERCENTAGE_SCALE;
-        }
-
-        if (po.fee == 0) {
-            po.fee = defaultFee;
-        }
-        if (po.period == 0) {
-            po.period = defaultPeriod;
-        }
-
-        address pool = uniswapV3Factory.getPool(token0, token1, po.fee);
-        if (pool == address(0)) {
-            revert Pool_DoesNotExist();
-        }
-
-        // reverts if period is zero or > oldest observation
-        (int24 arithmeticMeanTick,) = OracleLibrary.consult({pool: pool, secondsAgo: po.period});
-
-        uint256 unscaledAmountToBeneficiary = OracleLibrary.getQuoteAtTick({
-            tick: arithmeticMeanTick,
-            baseAmount: amountToTrader,
-            baseToken: tokenToTrader,
-            quoteToken: _tokenToBeneficiary
-        });
-
-        return unscaledAmountToBeneficiary * po.scaledOfferFactor / PERCENTAGE_SCALE;
+        return abi.decode(returnOrRevertData, (uint256[]));
     }
 }
