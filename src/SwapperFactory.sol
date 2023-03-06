@@ -22,13 +22,6 @@ contract SwapperFactory {
     /// -----------------------------------------------------------------------
 
     /// -----------------------------------------------------------------------
-    /// storage - constants & immutables
-    /// -----------------------------------------------------------------------
-
-    IUniswapV3Factory public immutable uniswapV3Factory;
-    address public immutable weth9;
-
-    /// -----------------------------------------------------------------------
     /// storage - mutables
     /// -----------------------------------------------------------------------
 
@@ -39,10 +32,7 @@ contract SwapperFactory {
     /// constructor
     /// -----------------------------------------------------------------------
 
-    constructor(IUniswapV3Factory uniswapV3Factory_, address weth9_) {
-        uniswapV3Factory = uniswapV3Factory_;
-        weth9 = weth9_;
-    }
+    constructor() {}
 
     /// -----------------------------------------------------------------------
     /// functions
