@@ -287,9 +287,9 @@ contract Swapper is Owned {
             _tokenToBeneficiary.safeTransferFrom(msg.sender, _beneficiary, amountToBeneficiary);
 
             // flush excess tokenToBeneficiary to beneficiary
-            excessToBeneficiary = ERC20(tokenToBeneficiary).balanceOf(address(this));
+            excessToBeneficiary = ERC20(_tokenToBeneficiary).balanceOf(address(this));
             if (excessToBeneficiary > 0) {
-                tokenToBeneficiary.safeTransfer(_beneficiary, excessToBeneficiary);
+                _tokenToBeneficiary.safeTransfer(_beneficiary, excessToBeneficiary);
             }
         }
 
