@@ -46,6 +46,7 @@ contract SwapperFactory {
         external
         returns (Swapper swapper)
     {
+        // TODO: gas test vs clone
         swapper = new Swapper({
             owner_: owner_,
             paused_: paused_,

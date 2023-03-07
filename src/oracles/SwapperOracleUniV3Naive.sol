@@ -11,10 +11,6 @@ import {TokenUtils} from "src/utils/TokenUtils.sol";
 /// @title Oracle for Swapper#flash
 /// @author 0xSplits
 /// @notice An oracle for Swapper#flash based on UniswapV3 TWAP
-/// @dev To be used exclusively via delegateCall from Swapper. Must use explicit
-/// storage bucket to avoid overlap with native Swapper storage & other past or
-/// future oracles if owner chooses to update
-/// Uses string reverts to bubble up properly
 contract SwapperOracleUniV3Naive is ISwapperOracle {
     /// -----------------------------------------------------------------------
     /// libraries
@@ -26,17 +22,20 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     /// errors
     /// -----------------------------------------------------------------------
 
-    error UnsupportedFile();
+    /// from interface
+
+    /// error UnsupportedFile();
+
     error Pool_DoesNotExist();
+    error TokenPairMismatch();
 
     /// -----------------------------------------------------------------------
     /// structs
     /// -----------------------------------------------------------------------
 
-    /// OracleStorage is explicitly stored in slot STORAGE_SLOT (= n in below comments)
     struct OracleStorage {
         //////
-        ////// Slot n
+        ////// Slot 0
         //////
 
         /// fee for default-whitelisted pools
@@ -58,15 +57,25 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         /// 21 bytes free
 
         //////
-        ////// Slot n+1
+        ////// Slot 1
         //////
 
         /// owner overrides for uniswap v3 oracle params
         /// 32 bytes
         mapping(address => mapping(address => PoolOverride)) _poolOverrides;
+
+        /// 0 bytes free
     }
 
-    /// 0 bytes free
+    /// from interface
+
+    /// @dev unwrap into enum in impl
+    /// type IFileType is uint8;
+
+    /// struct File {
+    ///     IFileType what;
+    ///     bytes data;
+    /// }
 
     enum FileType {
         NotSupported,
@@ -97,8 +106,6 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     /// -----------------------------------------------------------------------
 
     uint32 internal constant PERCENTAGE_SCALE = 100_00_00; // = 100%
-    // TODO: hard-code hash & update oracleStorage
-    bytes32 internal constant STORAGE_SLOT = keccak256("splits.swapper.uni-v3.naive.storage");
 
     IUniswapV3Factory public immutable uniswapV3Factory;
     address public immutable weth9;
@@ -107,12 +114,15 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     /// storage - mutables
     /// -----------------------------------------------------------------------
 
-    function _oracleStorage() internal pure returns (OracleStorage storage s) {
-        bytes32 slot = STORAGE_SLOT;
-        assembly {
-            s.slot := slot
-        }
-    }
+    /// -----------------------------------------------------------------------
+    /// storage - mutables - slot 0
+    /// -----------------------------------------------------------------------
+
+    /// mapping from Swapper address to its OracleStorage
+    mapping(Swapper => OracleStorage) internal _oracleStorage;
+    /// 32 bytes
+
+    /// 0 bytes free
 
     /// -----------------------------------------------------------------------
     /// constructor
@@ -136,7 +146,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         FileType what = FileType(IFileType.unwrap(incoming.what));
         bytes memory data = incoming.data;
 
-        OracleStorage storage s = _oracleStorage();
+        OracleStorage storage s = _oracleStorage[Swapper(payable(address(msg.sender)))];
         if (what == FileType.DefaultFee) {
             s.defaultFee = abi.decode(data, (uint24));
         } else if (what == FileType.DefaultPeriod) {
@@ -151,31 +161,65 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     }
 
     /// get oracle storage
-    function getFile(File calldata incoming) external view returns (bytes memory b) {
+    function getFile(Swapper swapper, File calldata incoming) external view returns (bytes memory) {
         FileType what = FileType(IFileType.unwrap(incoming.what));
 
-        OracleStorage storage s = _oracleStorage();
+        OracleStorage storage s = _oracleStorage[swapper];
         if (what == FileType.DefaultFee) {
-            b = abi.encode(s.defaultFee);
+            return abi.encode(s.defaultFee);
         } else if (what == FileType.DefaultPeriod) {
-            b = abi.encode(s.defaultPeriod);
+            return abi.encode(s.defaultPeriod);
         } else if (what == FileType.DefaultScaledOfferFactor) {
-            b = abi.encode(s.defaultScaledOfferFactor);
+            return abi.encode(s.defaultScaledOfferFactor);
         } else if (what == FileType.PoolOverride) {
             (address tokenA, address tokenB) = abi.decode(incoming.data, (address, address));
-            b = abi.encode(_getPoolOverrides(s, tokenA, tokenB));
+            return abi.encode(_getPoolOverrides(s, tokenA, tokenB));
         } else {
             revert UnsupportedFile();
         }
     }
 
+    /// get OracleStorage for a specific swapper
+    function getOracleDefaults(Swapper swapper)
+        external
+        view
+        returns (uint24 defaultFee, uint32 defaultPeriod, uint32 defaultScaledOfferFactor)
+    {
+        OracleStorage storage s = _oracleStorage[swapper];
+
+        defaultFee = s.defaultFee;
+        defaultPeriod = s.defaultPeriod;
+        defaultScaledOfferFactor = s.defaultScaledOfferFactor;
+    }
+
+    /// get PoolOverrides for a specific swapper & set of token pairs
+    function getOraclePoolOverrides(Swapper swapper, address[] calldata tokenA, address[] calldata tokenB)
+        external
+        view
+        returns (PoolOverride[] memory poolOverrides)
+    {
+        uint256 length = tokenA.length;
+        if (length != tokenB.length) revert TokenPairMismatch();
+        poolOverrides = new PoolOverride[](length);
+
+        OracleStorage storage s = _oracleStorage[swapper];
+        uint256 i;
+        for (; i < length;) {
+            poolOverrides[i] = _getPoolOverrides({s: s, tokenA: tokenA[i], tokenB: tokenB[i]});
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
     /// get amounts to beneficiary for a set of trades
     function getAmountsToBeneficiary(
+        Swapper swapper,
         address tokenToBeneficiary,
         Swapper.TradeParams[] calldata tradeParams,
         bytes calldata
     ) external view returns (uint256[] memory amountsToBeneficiary) {
-        OracleStorage storage s = _oracleStorage();
+        OracleStorage storage s = _oracleStorage[swapper];
         uint256 length = tradeParams.length;
         amountsToBeneficiary = new uint256[](length);
         uint256 i;

@@ -8,7 +8,6 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
 import {ISwapperOracle} from "src/interfaces/ISwapperOracle.sol";
-import {ISwapperReadOnly} from "src/interfaces/ISwapperReadOnly.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
 
 /// @title Swapper
@@ -138,7 +137,7 @@ contract Swapper is Owned {
     /// storage - mutables - slot 3
     /// -----------------------------------------------------------------------
 
-    /// owner overrides for uniswap v3 oracle params
+    /// price oracle for flash
     ISwapperOracle public oracle;
     /// 20 bytes
 
@@ -233,9 +232,8 @@ contract Swapper is Owned {
         address _tokenToBeneficiary = tokenToBeneficiary;
         uint256 amountToBeneficiary;
         uint256 length = tradeParams.length;
-        // explicitly wrap in staticcall to prevent state mod from oracle delegatecall
         uint256[] memory amountsToBeneficiary =
-            ISwapperReadOnly(address(this)).getAmountsToBeneficiary(_tokenToBeneficiary, tradeParams, oracleData);
+            oracle.getAmountsToBeneficiary(this, _tokenToBeneficiary, tradeParams, oracleData);
         if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
         {
             uint128 amountToTrader;
@@ -299,30 +297,19 @@ contract Swapper is Owned {
     /// functions - public & external - views
     /// -----------------------------------------------------------------------
 
-    /// !!! ATTENTION !!!
-    ///
-    /// Due to the modular nature of ISwapperOracle & the resulting uses of delegatecall below,
-    /// these functions cannot be marked as view in this file and _should not be called without
-    /// first wrapping the Swapper inside ISwapperReadOnly_ to coerce solidity to use staticcall
-    /// to prevent unexpected and unwanted state modification
-
     /// get storage
-    function getFile(File calldata incoming) external returns (bytes memory b) {
+    function getFile(File calldata incoming) external view returns (bytes memory) {
         FileType what = incoming.what;
         bytes memory data = incoming.data;
 
         if (what == FileType.Beneficiary) {
-            b = abi.encode(beneficiary);
+            return abi.encode(beneficiary);
         } else if (what == FileType.TokenToBeneficiary) {
-            b = abi.encode(tokenToBeneficiary);
+            return abi.encode(tokenToBeneficiary);
         } else if (what == FileType.Oracle) {
-            b = abi.encode(oracle);
+            return abi.encode(oracle);
         } else if (what == FileType.OracleFile) {
-            (bool success, bytes memory returnOrRevertData) = address(oracle).delegatecall(
-                abi.encodeCall(ISwapperOracle.getFile, (abi.decode(data, (ISwapperOracle.File))))
-            );
-            if (!success) revert UnsupportedOracleFile();
-            return returnOrRevertData;
+            return oracle.getFile(this, abi.decode(data, (ISwapperOracle.File)));
         } else {
             revert UnsupportedFile();
         }
@@ -332,19 +319,10 @@ contract Swapper is Owned {
     /// @dev call via ISwapperReadOnly to prevent state mod
     function getAmountsToBeneficiary(TradeParams[] calldata tradeParams, bytes calldata data)
         external
+        view
         returns (uint256[] memory)
     {
-        return _getAmountsToBeneficiary(tokenToBeneficiary, tradeParams, data);
-    }
-
-    /// get amounts to beneficiary for a set of trades
-    /// @dev call via ISwapperReadOnly to prevent state mod
-    function getAmountsToBeneficiary(
-        address _tokenToBeneficiary,
-        TradeParams[] calldata tradeParams,
-        bytes calldata data
-    ) external returns (uint256[] memory) {
-        return _getAmountsToBeneficiary(_tokenToBeneficiary, tradeParams, data);
+        return oracle.getAmountsToBeneficiary(this, tokenToBeneficiary, tradeParams, data);
     }
 
     /// -----------------------------------------------------------------------
@@ -367,31 +345,10 @@ contract Swapper is Owned {
             } else if (what == FileType.Oracle) {
                 oracle = abi.decode(data, (ISwapperOracle));
             } else if (what == FileType.OracleFile) {
-                (bool success,) = address(oracle).delegatecall(
-                    abi.encodeCall(ISwapperOracle.file, (abi.decode(data, (ISwapperOracle.File))))
-                );
-                if (!success) revert UnsupportedOracleFile();
+                oracle.file(abi.decode(data, (ISwapperOracle.File)));
             } else {
                 revert UnsupportedFile();
             }
         }
-    }
-
-    /// get amounts to beneficiary for a set of trades
-    function _getAmountsToBeneficiary(
-        address _tokenToBeneficiary,
-        TradeParams[] calldata tradeParams,
-        bytes calldata data
-    ) internal returns (uint256[] memory amountsToBeneficiary) {
-        Swapper.TradeParams[] memory tps = tradeParams;
-        (bool success, bytes memory returnOrRevertData) = address(oracle).delegatecall(
-            abi.encodeCall(ISwapperOracle.getAmountsToBeneficiary, (_tokenToBeneficiary, tps, data))
-        );
-        if (!success) {
-            assembly {
-                revert(add(returnOrRevertData, 0x20), mload(returnOrRevertData))
-            }
-        }
-        return abi.decode(returnOrRevertData, (uint256[]));
     }
 }

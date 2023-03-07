@@ -5,11 +5,8 @@ import {Swapper} from "src/Swapper.sol";
 
 /// @title Oracle interface for Swapper#flash
 /// @notice An oracle interface for Swapper#flash
-/// @dev To be used exclusively via delegateCall from Swapper. MUST use explicit
-/// storage bucket to avoid storage overlap with Swapper & other past or future
-/// oracles (if owner chooses to update).
 interface ISwapperOracle {
-    error UnsupportedOracleFile();
+    error UnsupportedFile();
 
     /// @dev unwrap into enum in impl
     type IFileType is uint8;
@@ -21,9 +18,10 @@ interface ISwapperOracle {
 
     function file(File calldata incoming) external;
 
-    function getFile(File calldata incoming) external view returns (bytes memory);
+    function getFile(Swapper swapper, File calldata incoming) external view returns (bytes memory);
 
     function getAmountsToBeneficiary(
+        Swapper swapper,
         address tokenToBeneficiary,
         Swapper.TradeParams[] calldata tradeParams,
         bytes calldata data
