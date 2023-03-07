@@ -24,10 +24,9 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
 
     /// from interface
 
-    /// error UnsupportedFile();
+    /* error UnsupportedFile(); */
 
     error Pool_DoesNotExist();
-    error TokenPairMismatch();
 
     /// -----------------------------------------------------------------------
     /// structs
@@ -35,7 +34,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
 
     struct OracleStorage {
         //////
-        ////// Slot 0
+        ////// Slot 0 - 21 bytes free
         //////
 
         /// fee for default-whitelisted pools
@@ -54,28 +53,34 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
         /// 4 bytes
         uint32 defaultScaledOfferFactor;
-        /// 21 bytes free
-
         //////
-        ////// Slot 1
+        ////// Slot 1 - 0 bytes free
         //////
 
         /// owner overrides for uniswap v3 oracle params
         /// 32 bytes
         mapping(address => mapping(address => PoolOverride)) _poolOverrides;
-
-        /// 0 bytes free
     }
 
     /// from interface
 
-    /// @dev unwrap into enum in impl
-    /// type IFileType is uint8;
+    /* @dev unwrap into enum in impl */
+    /* type IFileType is uint8; */
 
-    /// struct File {
-    ///     IFileType what;
-    ///     bytes data;
-    /// }
+    /* struct File { */
+    /*     IFileType what; */
+    /*     bytes data; */
+    /* } */
+
+    /* struct UnsortedTokenPair { */
+    /*     address tokenA; */
+    /*     address tokenB; */
+    /* } */
+
+    /* struct SortedTokenPair { */
+    /*     address token0; */
+    /*     address token1; */
+    /* } */
 
     enum FileType {
         NotSupported,
@@ -86,8 +91,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     }
 
     struct SetPoolOverrideParams {
-        address tokenA;
-        address tokenB;
+        UnsortedTokenPair utp;
         PoolOverride poolOverride;
     }
 
@@ -172,8 +176,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         } else if (what == FileType.DefaultScaledOfferFactor) {
             return abi.encode(s.defaultScaledOfferFactor);
         } else if (what == FileType.PoolOverride) {
-            (address tokenA, address tokenB) = abi.decode(incoming.data, (address, address));
-            return abi.encode(_getPoolOverrides(s, tokenA, tokenB));
+            return abi.encode(_getPoolOverrides(s, abi.decode(incoming.data, (UnsortedTokenPair))));
         } else {
             revert UnsupportedFile();
         }
@@ -193,19 +196,19 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     }
 
     /// get PoolOverrides for a specific swapper & set of token pairs
-    function getOraclePoolOverrides(Swapper swapper, address[] calldata tokenA, address[] calldata tokenB)
+    function getOraclePoolOverrides(Swapper swapper, UnsortedTokenPair[] calldata tps)
         external
         view
         returns (PoolOverride[] memory poolOverrides)
     {
-        uint256 length = tokenA.length;
-        if (length != tokenB.length) revert TokenPairMismatch();
+        uint256 length = tps.length;
         poolOverrides = new PoolOverride[](length);
 
         OracleStorage storage s = _oracleStorage[swapper];
         uint256 i;
         for (; i < length;) {
-            poolOverrides[i] = _getPoolOverrides({s: s, tokenA: tokenA[i], tokenB: tokenB[i]});
+            UnsortedTokenPair calldata utp = tps[i];
+            poolOverrides[i] = _getPoolOverrides({s: s, utp: utp});
             unchecked {
                 ++i;
             }
@@ -245,13 +248,14 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         address tokenToTrader = tradeParams.token;
         uint128 amountToTrader = tradeParams.amount;
 
-        (address token0, address token1) = _sortTokens(tokenToBeneficiary, tradeParams.token);
-        PoolOverride memory po = s._poolOverrides[token0][token1];
+        SortedTokenPair memory stp =
+            _sortTokens(UnsortedTokenPair({tokenA: tokenToBeneficiary, tokenB: tradeParams.token}));
+        PoolOverride memory po = s._poolOverrides[stp.token0][stp.token1];
         if (po.scaledOfferFactor == 0) {
             po.scaledOfferFactor = s.defaultScaledOfferFactor;
         }
 
-        if (token0 == token1) {
+        if (stp.token0 == stp.token1) {
             // no oracle necessary
             return amountToTrader * po.scaledOfferFactor / PERCENTAGE_SCALE;
         }
@@ -263,7 +267,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
             po.period = s.defaultPeriod;
         }
 
-        address pool = uniswapV3Factory.getPool(token0, token1, po.fee);
+        address pool = uniswapV3Factory.getPool(stp.token0, stp.token1, po.fee);
         if (pool == address(0)) {
             revert Pool_DoesNotExist();
         }
@@ -283,24 +287,31 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
 
     /// set pool overrides
     function _setPoolOverride(OracleStorage storage s, SetPoolOverrideParams memory params) internal {
-        (address token0, address token1) = _sortTokens(params.tokenA, params.tokenB);
-        s._poolOverrides[token0][token1] = params.poolOverride;
+        SortedTokenPair memory stp = _sortTokens(params.utp);
+        s._poolOverrides[stp.token0][stp.token1] = params.poolOverride;
     }
 
     /// get pool overrides
-    function _getPoolOverrides(OracleStorage storage s, address tokenA, address tokenB)
+    function _getPoolOverrides(OracleStorage storage s, UnsortedTokenPair memory utp)
         internal
         view
         returns (PoolOverride memory)
     {
-        (address token0, address token1) = _sortTokens(tokenA, tokenB);
-        return s._poolOverrides[token0][token1];
+        SortedTokenPair memory stp = _sortTokens(utp);
+        return s._poolOverrides[stp.token0][stp.token1];
     }
 
     /// sort tokens into canonical order
-    function _sortTokens(address tokenA, address tokenB) internal view returns (address token0, address token1) {
-        token0 = tokenA.isETH() ? weth9 : tokenA;
-        token1 = tokenB.isETH() ? weth9 : tokenB;
-        if (token0 > token1) (token0, token1) = (token1, token0);
+    function _sortTokens(UnsortedTokenPair memory utp) internal view returns (SortedTokenPair memory) {
+        address tokenA = utp.tokenA;
+        address tokenB = utp.tokenB;
+        tokenA = tokenA.isETH() ? weth9 : tokenA;
+        tokenB = tokenB.isETH() ? weth9 : tokenB;
+
+        if (tokenA > tokenB) {
+            (tokenA, tokenB) = (tokenB, tokenA);
+        }
+
+        return SortedTokenPair({token0: tokenA, token1: tokenB});
     }
 }

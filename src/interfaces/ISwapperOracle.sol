@@ -16,6 +16,16 @@ interface ISwapperOracle {
         bytes data;
     }
 
+    struct UnsortedTokenPair {
+        address tokenA;
+        address tokenB;
+    }
+
+    struct SortedTokenPair {
+        address token0;
+        address token1;
+    }
+
     function file(File calldata incoming) external;
 
     function getFile(Swapper swapper, File calldata incoming) external view returns (bytes memory);

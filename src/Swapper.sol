@@ -95,17 +95,15 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     /// -----------------------------------------------------------------------
-    /// storage - mutables - slot 0
+    /// storage - mutables - slot 0 - 12 bytes free
     /// -----------------------------------------------------------------------
 
     /// Owned storage
     /// address public owner;
     /// 20 bytes
 
-    /// 12 bytes free
-
     /// -----------------------------------------------------------------------
-    /// storage - mutables - slot 1
+    /// storage - mutables - slot 1 - 0 bytes free
     /// -----------------------------------------------------------------------
 
     /// address to receive post-swap tokens
@@ -116,10 +114,8 @@ contract Swapper is Owned {
     uint96 internal _payback;
     /// 12 bytes
 
-    /// 0 bytes free
-
     /// -----------------------------------------------------------------------
-    /// storage - mutables - slot 2
+    /// storage - mutables - slot 2 - 11 bytes free
     /// -----------------------------------------------------------------------
 
     /// token type to send beneficiary
@@ -131,17 +127,13 @@ contract Swapper is Owned {
     bool public paused;
     /// 1 byte
 
-    /// 11 bytes free
-
     /// -----------------------------------------------------------------------
-    /// storage - mutables - slot 3
+    /// storage - mutables - slot 3 - 12 bytes free
     /// -----------------------------------------------------------------------
 
     /// price oracle for flash
     ISwapperOracle public oracle;
     /// 20 bytes
-
-    /// 12 bytes free
 
     /// -----------------------------------------------------------------------
     /// constructor
