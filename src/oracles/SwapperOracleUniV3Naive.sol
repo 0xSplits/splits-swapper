@@ -8,7 +8,7 @@ import {ISwapperOracle} from "src/interfaces/ISwapperOracle.sol";
 import {Swapper} from "src/Swapper.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
 
-/// @title Oracle for Swapper#flash
+/// @title Naive UniV3 Oracle for Swapper#flash
 /// @author 0xSplits
 /// @notice An oracle for Swapper#flash based on UniswapV3 TWAP
 contract SwapperOracleUniV3Naive is ISwapperOracle {
@@ -33,33 +33,35 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     /// -----------------------------------------------------------------------
 
     struct OracleStorage {
-        //////
-        ////// Slot 0 - 21 bytes free
-        //////
+        /// -------------------------------------------------------------------
+        /// Slot 0 - 21 bytes free
+        /// -------------------------------------------------------------------
 
-        /// fee for default-whitelisted pools
+        /// default uniswap pool fee
         /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100%;
         /// fee = 30_00 = 0.3% is the uniswap default
         /// unless overriden, flash will revert if a non-permitted pool fee is used
         /// 3 bytes
         uint24 defaultFee;
-        /// twap duration for default-whitelisted pools
+
+        /// default twap period
         /// @dev unless overriden, flash will revert if zero
         /// 4 bytes
         uint32 defaultPeriod;
-        /// scaling factor to oracle pricing for default-whitelisted pools to
-        /// incentivize traders
+
+        /// default price scaling factor
         /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100% = no discount or premium
         /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
         /// 4 bytes
         uint32 defaultScaledOfferFactor;
-        //////
-        ////// Slot 1 - 0 bytes free
-        //////
 
-        /// owner overrides for uniswap v3 oracle params
+        /// -------------------------------------------------------------------
+        /// Slot 1 - 0 bytes free
+        /// -------------------------------------------------------------------
+
+        /// overrides for specific token pairs
         /// 32 bytes
-        mapping(address => mapping(address => PoolOverride)) _poolOverrides;
+        mapping(address => mapping(address => PairOverride)) _pairOverrides;
     }
 
     /// from interface
@@ -87,15 +89,15 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         DefaultFee,
         DefaultPeriod,
         DefaultScaledOfferFactor,
-        PoolOverride
+        PairOverride
     }
 
-    struct SetPoolOverrideParams {
+    struct SetPairOverrideParams {
         UnsortedTokenPair utp;
-        PoolOverride poolOverride;
+        PairOverride pairOverride;
     }
 
-    struct PoolOverride {
+    struct PairOverride {
         uint24 fee;
         uint32 period;
         uint32 scaledOfferFactor;
@@ -157,8 +159,8 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
             s.defaultPeriod = abi.decode(data, (uint32));
         } else if (what == FileType.DefaultScaledOfferFactor) {
             s.defaultScaledOfferFactor = abi.decode(data, (uint32));
-        } else if (what == FileType.PoolOverride) {
-            _setPoolOverride(s, abi.decode(data, (SetPoolOverrideParams)));
+        } else if (what == FileType.PairOverride) {
+            _setPairOverride(s, abi.decode(data, (SetPairOverrideParams)));
         } else {
             revert UnsupportedFile();
         }
@@ -175,8 +177,8 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
             return abi.encode(s.defaultPeriod);
         } else if (what == FileType.DefaultScaledOfferFactor) {
             return abi.encode(s.defaultScaledOfferFactor);
-        } else if (what == FileType.PoolOverride) {
-            return abi.encode(_getPoolOverrides(s, abi.decode(incoming.data, (UnsortedTokenPair))));
+        } else if (what == FileType.PairOverride) {
+            return abi.encode(_getPairOverrides(s, abi.decode(incoming.data, (UnsortedTokenPair))));
         } else {
             revert UnsupportedFile();
         }
@@ -195,20 +197,20 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         defaultScaledOfferFactor = s.defaultScaledOfferFactor;
     }
 
-    /// get PoolOverrides for a specific swapper & set of token pairs
-    function getOraclePoolOverrides(Swapper swapper, UnsortedTokenPair[] calldata tps)
+    /// get PairOverrides for a specific swapper & set of token pairs
+    function getOraclePairOverrides(Swapper swapper, UnsortedTokenPair[] calldata tps)
         external
         view
-        returns (PoolOverride[] memory poolOverrides)
+        returns (PairOverride[] memory pairOverrides)
     {
         uint256 length = tps.length;
-        poolOverrides = new PoolOverride[](length);
+        pairOverrides = new PairOverride[](length);
 
         OracleStorage storage s = _oracleStorage[swapper];
         uint256 i;
         for (; i < length;) {
             UnsortedTokenPair calldata utp = tps[i];
-            poolOverrides[i] = _getPoolOverrides({s: s, utp: utp});
+            pairOverrides[i] = _getPairOverrides({s: s, utp: utp});
             unchecked {
                 ++i;
             }
@@ -250,7 +252,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
 
         SortedTokenPair memory stp =
             _sortTokens(UnsortedTokenPair({tokenA: tokenToBeneficiary, tokenB: tradeParams.token}));
-        PoolOverride memory po = s._poolOverrides[stp.token0][stp.token1];
+        PairOverride memory po = _getPairOverrides(s, stp);
         if (po.scaledOfferFactor == 0) {
             po.scaledOfferFactor = s.defaultScaledOfferFactor;
         }
@@ -285,20 +287,28 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         return unscaledAmountToBeneficiary * po.scaledOfferFactor / PERCENTAGE_SCALE;
     }
 
-    /// set pool overrides
-    function _setPoolOverride(OracleStorage storage s, SetPoolOverrideParams memory params) internal {
+    /// set pair overrides
+    function _setPairOverride(OracleStorage storage s, SetPairOverrideParams memory params) internal {
         SortedTokenPair memory stp = _sortTokens(params.utp);
-        s._poolOverrides[stp.token0][stp.token1] = params.poolOverride;
+        s._pairOverrides[stp.token0][stp.token1] = params.pairOverride;
     }
 
-    /// get pool overrides
-    function _getPoolOverrides(OracleStorage storage s, UnsortedTokenPair memory utp)
+    /// get pair overrides
+    function _getPairOverrides(OracleStorage storage s, UnsortedTokenPair memory utp)
         internal
         view
-        returns (PoolOverride memory)
+        returns (PairOverride memory)
     {
-        SortedTokenPair memory stp = _sortTokens(utp);
-        return s._poolOverrides[stp.token0][stp.token1];
+        return _getPairOverrides(s, _sortTokens(utp));
+    }
+
+    /// get pair overrides
+    function _getPairOverrides(OracleStorage storage s, SortedTokenPair memory stp)
+        internal
+        view
+        returns (PairOverride memory)
+    {
+        return s._pairOverrides[stp.token0][stp.token1];
     }
 
     /// sort tokens into canonical order
