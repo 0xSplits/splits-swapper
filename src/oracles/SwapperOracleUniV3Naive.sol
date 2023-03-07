@@ -9,7 +9,8 @@ import {Swapper} from "src/Swapper.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
 
 /// @title Oracle for Swapper#flash
-/// @notice TODO
+/// @author 0xSplits
+/// @notice An oracle for Swapper#flash based on UniswapV3 TWAP
 /// @dev To be used exclusively via delegateCall from Swapper. Must use explicit
 /// storage bucket to avoid overlap with native Swapper storage & other past or
 /// future oracles if owner chooses to update
@@ -194,13 +195,13 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     /// get amount to beneficiary for a particular trade
     function _getAmountToBeneficiary(
         OracleStorage storage s,
-        address _tokenToBeneficiary,
+        address tokenToBeneficiary,
         Swapper.TradeParams calldata tradeParams
     ) internal view returns (uint256) {
         address tokenToTrader = tradeParams.token;
         uint128 amountToTrader = tradeParams.amount;
 
-        (address token0, address token1) = _sortTokens(_tokenToBeneficiary, tradeParams.token);
+        (address token0, address token1) = _sortTokens(tokenToBeneficiary, tradeParams.token);
         PoolOverride memory po = s._poolOverrides[token0][token1];
         if (po.scaledOfferFactor == 0) {
             po.scaledOfferFactor = s.defaultScaledOfferFactor;
@@ -230,7 +231,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
             tick: arithmeticMeanTick,
             baseAmount: amountToTrader,
             baseToken: tokenToTrader,
-            quoteToken: _tokenToBeneficiary
+            quoteToken: tokenToBeneficiary
         });
 
         return unscaledAmountToBeneficiary * po.scaledOfferFactor / PERCENTAGE_SCALE;

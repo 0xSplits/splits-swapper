@@ -192,7 +192,6 @@ contract Swapper is Owned {
         bool success;
         uint256 i;
         for (; i < length;) {
-            // TODO: calldata vs memory?
             Call calldata calli = calls[i];
             (success, returnData[i]) = calli.target.call{value: calli.value}(calli.callData);
             require(success, string(returnData[i]));

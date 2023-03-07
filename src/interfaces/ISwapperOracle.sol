@@ -4,8 +4,10 @@ pragma solidity ^0.8.17;
 import {Swapper} from "src/Swapper.sol";
 
 /// @title Oracle interface for Swapper#flash
-/// @notice TODO
-/// @dev TODO
+/// @notice An oracle interface for Swapper#flash
+/// @dev To be used exclusively via delegateCall from Swapper. MUST use explicit
+/// storage bucket to avoid storage overlap with Swapper & other past or future
+/// oracles (if owner chooses to update).
 interface ISwapperOracle {
     error UnsupportedOracleFile();
 
@@ -16,8 +18,6 @@ interface ISwapperOracle {
         IFileType what;
         bytes data;
     }
-
-    /* function init() external; */
 
     function file(File calldata incoming) external;
 
