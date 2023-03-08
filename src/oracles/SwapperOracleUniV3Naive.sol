@@ -43,18 +43,15 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         /// unless overriden, flash will revert if a non-permitted pool fee is used
         /// 3 bytes
         uint24 defaultFee;
-
         /// default twap period
         /// @dev unless overriden, flash will revert if zero
         /// 4 bytes
         uint32 defaultPeriod;
-
         /// default price scaling factor
         /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100% = no discount or premium
         /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
         /// 4 bytes
         uint32 defaultScaledOfferFactor;
-
         /// -------------------------------------------------------------------
         /// Slot 1 - 0 bytes free
         /// -------------------------------------------------------------------
@@ -244,14 +241,14 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     /// get amount to beneficiary for a particular trade
     function _getAmountToBeneficiary(
         OracleStorage storage s,
-        address tokenToBeneficiary,
+        address _tokenToBeneficiary,
         Swapper.TradeParams calldata tradeParams
     ) internal view returns (uint256) {
-        address tokenToTrader = tradeParams.token;
+        address tokenToTrader = _convertToken(tradeParams.token);
+        address tokenToBeneficiary = _convertToken(_tokenToBeneficiary);
         uint128 amountToTrader = tradeParams.amount;
 
-        SortedTokenPair memory stp =
-            _sortTokens(UnsortedTokenPair({tokenA: tokenToBeneficiary, tokenB: tradeParams.token}));
+        SortedTokenPair memory stp = _sortTokens(UnsortedTokenPair({tokenA: tokenToBeneficiary, tokenB: tokenToTrader}));
         PairOverride memory po = _getPairOverrides(s, stp);
         if (po.scaledOfferFactor == 0) {
             po.scaledOfferFactor = s.defaultScaledOfferFactor;
@@ -289,7 +286,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
 
     /// set pair overrides
     function _setPairOverride(OracleStorage storage s, SetPairOverrideParams memory params) internal {
-        SortedTokenPair memory stp = _sortTokens(params.utp);
+        SortedTokenPair memory stp = _convertAndSortTokens(params.utp);
         s._pairOverrides[stp.token0][stp.token1] = params.pairOverride;
     }
 
@@ -299,7 +296,7 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
         view
         returns (PairOverride memory)
     {
-        return _getPairOverrides(s, _sortTokens(utp));
+        return _getPairOverrides(s, _convertAndSortTokens(utp));
     }
 
     /// get pair overrides
@@ -312,16 +309,23 @@ contract SwapperOracleUniV3Naive is ISwapperOracle {
     }
 
     /// sort tokens into canonical order
-    function _sortTokens(UnsortedTokenPair memory utp) internal view returns (SortedTokenPair memory) {
+    function _sortTokens(UnsortedTokenPair memory utp) internal pure returns (SortedTokenPair memory) {
         address tokenA = utp.tokenA;
         address tokenB = utp.tokenB;
-        tokenA = tokenA.isETH() ? weth9 : tokenA;
-        tokenB = tokenB.isETH() ? weth9 : tokenB;
 
         if (tokenA > tokenB) {
             (tokenA, tokenB) = (tokenB, tokenA);
         }
-
         return SortedTokenPair({token0: tokenA, token1: tokenB});
+    }
+
+    /// convert eth (0x0) to weth
+    function _convertToken(address token) internal view returns (address) {
+        return token.isETH() ? weth9 : token;
+    }
+
+    /// convert & sort tokens into canonical order
+    function _convertAndSortTokens(UnsortedTokenPair memory utp) internal view returns (SortedTokenPair memory) {
+        return _sortTokens(UnsortedTokenPair({tokenA: _convertToken(utp.tokenA), tokenB: _convertToken(utp.tokenB)}));
     }
 }
