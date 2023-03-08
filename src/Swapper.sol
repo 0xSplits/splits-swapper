@@ -236,13 +236,13 @@ contract Swapper is Owned {
                 tokenToTrader = tp.token;
                 amountToTrader = tp.amount;
 
-                if (amountToTrader > address(this).getBalance(tokenToTrader)) {
+                if (amountToTrader > address(this)._getBalance(tokenToTrader)) {
                     revert InsufficientFunds_InContract();
                 }
 
                 amountToBeneficiary += amountsToBeneficiary[i];
 
-                if (tokenToTrader.isETH()) {
+                if (tokenToTrader._isETH()) {
                     msg.sender.safeTransferETH(amountToTrader);
                 } else {
                     tokenToTrader.safeTransfer(msg.sender, amountToTrader);
