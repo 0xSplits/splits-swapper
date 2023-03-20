@@ -3,6 +3,20 @@ pragma solidity ^0.8.17;
 
 import {Swapper} from "src/Swapper.sol";
 
+// TODO: we should be releasing engineering / technical ~launch blog posts for every ~contract etc?
+// swapper: direct swap; integration contracts; oracle interface. maximum composability. clones vs full deploys.
+// oracle interface; oracle options - how they worked, what we picked, tradeoffs considered
+// usage of types - parse, dont validate
+// file pattern
+// oracle: clones vs single contract
+
+// TODO: rename IOracle? rename getAmounts to { getQuoteAmount }
+// TODO: the oracle _~interface_ is actually.. very important?
+// TODO: should each swapper be deploying it's own oracle clone instead of having all the oracles share storage?
+// TODO: theoretically that would .. enhance security (lack of commingled storage?) but also allow people to opt into sharing oracles?
+// would be the equivalent of like having an operator or something for yours
+// actually ig you can already do this
+
 /// @title Oracle interface for Swapper#flash
 /// @notice An oracle interface for Swapper#flash
 interface ISwapperOracle {
@@ -33,7 +47,6 @@ interface ISwapperOracle {
     function getAmountsToBeneficiary(
         Swapper swapper,
         address tokenToBeneficiary,
-        Swapper.TradeParams[] calldata tradeParams,
-        bytes calldata data
+        Swapper.TradeParams[] calldata tradeParams
     ) external view returns (uint256[] memory);
 }

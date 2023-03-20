@@ -65,6 +65,7 @@ contract Swapper is Owned {
     struct TradeParams {
         address token;
         uint128 amount;
+        bytes data;
     }
 
     /// -----------------------------------------------------------------------
@@ -215,17 +216,16 @@ contract Swapper is Owned {
     }
 
     /// incentivizes third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(TradeParams[] calldata tradeParams, bytes calldata oracleData, bytes calldata callbackData)
-        external
-        payable
-    {
+    function flash(TradeParams[] calldata tradeParams, bytes calldata callbackData) external payable {
         if (paused) revert Paused();
 
         address _tokenToBeneficiary = tokenToBeneficiary;
         uint256 amountToBeneficiary;
         uint256 length = tradeParams.length;
-        uint256[] memory amountsToBeneficiary =
-            oracle.getAmountsToBeneficiary(this, _tokenToBeneficiary, tradeParams, oracleData);
+        // TODO: why use "this" instead of msg.sender?
+        // TODO: suppose "this" allows the concept of a swaqpper that uses someone elses oracle storage? but.. why
+        // not just use clone at that point?
+        uint256[] memory amountsToBeneficiary = oracle.getAmountsToBeneficiary(this, _tokenToBeneficiary, tradeParams);
         if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
         {
             uint128 amountToTrader;
@@ -262,7 +262,7 @@ contract Swapper is Owned {
 
         address _beneficiary = beneficiary;
         uint256 excessToBeneficiary;
-        if (_tokenToBeneficiary.isETH()) {
+        if (_tokenToBeneficiary._isETH()) {
             if (_payback < amountToBeneficiary) {
                 revert InsufficientFunds_FromTrader();
             }
@@ -309,12 +309,8 @@ contract Swapper is Owned {
 
     /// get amounts to beneficiary for a set of trades
     /// @dev call via ISwapperReadOnly to prevent state mod
-    function getAmountsToBeneficiary(TradeParams[] calldata tradeParams, bytes calldata data)
-        external
-        view
-        returns (uint256[] memory)
-    {
-        return oracle.getAmountsToBeneficiary(this, tokenToBeneficiary, tradeParams, data);
+    function getAmountsToBeneficiary(TradeParams[] calldata tradeParams) external view returns (uint256[] memory) {
+        return oracle.getAmountsToBeneficiary(this, tokenToBeneficiary, tradeParams);
     }
 
     /// -----------------------------------------------------------------------

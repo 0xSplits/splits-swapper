@@ -11,10 +11,10 @@ library TokenUtils {
     }
 
     function _getBalance(address addr, address token) internal view returns (uint256) {
-        return isETH(token) ? addr.balance : ERC20(token).balanceOf(addr);
+        return _isETH(token) ? addr.balance : ERC20(token).balanceOf(addr);
     }
 
-    function isETH(address addr) internal pure returns (bool) {
-        return (addr == ETH_ADDRESS);
+    function _getDecimals(address token) internal view returns (uint8) {
+        return _isETH(token) ? 18 : ERC20(token).decimals();
     }
 }

@@ -6,3 +6,4 @@ v3-core/=lib/v3-core/contracts/
 @uniswap/v3-core/=lib/v3-core/
 v3-periphery/=lib/v3-periphery/contracts/
 @uniswap/v3-periphery/=lib/v3-periphery/
+chainlink/=lib/chainlink/contracts/src/v0.8/
