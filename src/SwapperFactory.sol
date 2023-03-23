@@ -3,7 +3,8 @@ pragma solidity ^0.8.17;
 
 import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
 
-import {ISwapperOracle} from "src/interfaces/ISwapperOracle.sol";
+import {IOracle} from "src/interfaces/IOracle.sol";
+import {IOracleFactory} from "src/interfaces/IOracleFactory.sol";
 import {Swapper} from "src/Swapper.sol";
 
 /// @title SwapperFactory
@@ -15,7 +16,14 @@ contract SwapperFactory {
     /// events
     /// -----------------------------------------------------------------------
 
-    event CreateSwapper(Swapper indexed swapper, address owner, bool paused, Swapper.File[] files);
+    event CreateSwapper(
+        Swapper indexed swapper,
+        address owner,
+        bool paused,
+        address beneficiary,
+        address tokenToBeneficiary,
+        IOracle oracle
+    );
 
     /// -----------------------------------------------------------------------
     /// storage
@@ -42,19 +50,57 @@ contract SwapperFactory {
     /// functions - public & external
     /// -----------------------------------------------------------------------
 
-    function createSwapper(address owner_, bool paused_, Swapper.File[] calldata init)
+    function createSwapper(address owner, bool paused, address beneficiary, address tokenToBeneficiary, IOracle oracle)
         external
         returns (Swapper swapper)
     {
-        // TODO: gas test vs clone
         swapper = new Swapper({
-            owner_: owner_,
-            paused_: paused_,
-            files: init
+            owner_: owner,
+            paused_: paused,
+            beneficiary_: beneficiary,
+            tokenToBeneficiary_: tokenToBeneficiary,
+            oracle_: oracle
         });
 
         isSwapper[swapper] = true;
 
-        emit CreateSwapper({swapper: swapper, owner: owner_, paused: paused_, files: init});
+        emit CreateSwapper({
+            swapper: swapper,
+            owner: owner,
+            paused: paused,
+            beneficiary: beneficiary,
+            tokenToBeneficiary: tokenToBeneficiary,
+            oracle: oracle
+        });
+    }
+
+    function createOracleAndSwapper(
+        address owner,
+        bool paused,
+        address beneficiary,
+        address tokenToBeneficiary,
+        IOracleFactory oracleFactory,
+        bytes calldata oracleInit
+    ) external returns (Swapper swapper) {
+        IOracle oracle = oracleFactory.createOracle(oracleInit);
+
+        swapper = new Swapper({
+            owner_: owner,
+            paused_: paused,
+            beneficiary_: beneficiary,
+            tokenToBeneficiary_: tokenToBeneficiary,
+            oracle_: oracle
+            });
+
+        isSwapper[swapper] = true;
+
+        emit CreateSwapper({
+            swapper: swapper,
+            owner: owner,
+            paused: paused,
+            beneficiary: beneficiary,
+            tokenToBeneficiary: tokenToBeneficiary,
+            oracle: oracle
+        });
     }
 }

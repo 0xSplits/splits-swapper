@@ -7,7 +7,7 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
-import {ISwapperOracle} from "src/interfaces/ISwapperOracle.sol";
+import {IOracle} from "src/interfaces/IOracle.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
 
 /// @title Swapper
@@ -33,8 +33,6 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     error Paused();
-    error UnsupportedFile();
-    error UnsupportedOracleFile();
     error Invalid_AmountsToBeneficiary();
     error InsufficientFunds_InContract();
     error InsufficientFunds_FromTrader();
@@ -43,37 +41,20 @@ contract Swapper is Owned {
     /// structs
     /// -----------------------------------------------------------------------
 
-    enum FileType {
-        NotSupported,
-        Beneficiary,
-        TokenToBeneficiary,
-        Oracle,
-        OracleFile
-    }
-
-    struct File {
-        FileType what;
-        bytes data;
-    }
-
     struct Call {
         address target;
         uint256 value;
         bytes callData;
     }
 
-    struct TradeParams {
-        address token;
-        uint128 amount;
-        bytes data;
-    }
-
     /// -----------------------------------------------------------------------
     /// events
     /// -----------------------------------------------------------------------
 
+    event SetBeneficiary(address beneficiary);
+    event SetTokenToBeneficiary(address tokenToBeneficiaryd);
     event SetPaused(bool paused);
-    event FilesUpdated(File[] files);
+    event SetOracle(IOracle oracle);
 
     event ExecCalls(Call[] calls);
 
@@ -81,7 +62,7 @@ contract Swapper is Owned {
     event PayBack(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
-        TradeParams[] tradeParams,
+        IOracle.BaseParams[] baseParams,
         address tokenToBeneficiary,
         uint256[] amountsToBeneficiary,
         uint256 excessToBeneficiary
@@ -95,17 +76,13 @@ contract Swapper is Owned {
     /// storage - mutables
     /// -----------------------------------------------------------------------
 
-    /// -----------------------------------------------------------------------
-    /// storage - mutables - slot 0 - 12 bytes free
-    /// -----------------------------------------------------------------------
+    /// slot 0 - 12 bytes free
 
     /// Owned storage
     /// address public owner;
     /// 20 bytes
 
-    /// -----------------------------------------------------------------------
-    /// storage - mutables - slot 1 - 0 bytes free
-    /// -----------------------------------------------------------------------
+    /// slot 1 - 0 bytes free
 
     /// address to receive post-swap tokens
     address public beneficiary;
@@ -115,9 +92,7 @@ contract Swapper is Owned {
     uint96 internal _payback;
     /// 12 bytes
 
-    /// -----------------------------------------------------------------------
-    /// storage - mutables - slot 2 - 11 bytes free
-    /// -----------------------------------------------------------------------
+    /// slot 2 - 11 bytes free
 
     /// token type to send beneficiary
     /// @dev 0x0 used for ETH
@@ -128,21 +103,24 @@ contract Swapper is Owned {
     bool public paused;
     /// 1 byte
 
-    /// -----------------------------------------------------------------------
-    /// storage - mutables - slot 3 - 12 bytes free
-    /// -----------------------------------------------------------------------
+    /// slot 3 - 12 bytes free
 
     /// price oracle for flash
-    ISwapperOracle public oracle;
+    IOracle public oracle;
     /// 20 bytes
 
     /// -----------------------------------------------------------------------
     /// constructor
     /// -----------------------------------------------------------------------
 
-    constructor(address owner_, bool paused_, File[] memory files) Owned(owner_) {
+    constructor(address owner_, bool paused_, address beneficiary_, address tokenToBeneficiary_, IOracle oracle_)
+        Owned(owner_)
+    {
+        beneficiary = beneficiary_;
+        tokenToBeneficiary = tokenToBeneficiary_;
         paused = paused_;
-        _file(files);
+        oracle = oracle_;
+
         // event in factory
     }
 
@@ -158,17 +136,33 @@ contract Swapper is Owned {
     /// functions - public & external - onlyOwner
     /// -----------------------------------------------------------------------
 
+    /// set beneficiary
+    function setBeneficiary(address beneficiary_) external onlyOwner {
+        beneficiary = beneficiary_;
+        emit SetBeneficiary(beneficiary_);
+    }
+
+    /// set tokenToBeneficiary
+    function setTokenToBeneficiary(address tokenToBeneficiary_) external onlyOwner {
+        tokenToBeneficiary = tokenToBeneficiary_;
+        emit SetTokenToBeneficiary(tokenToBeneficiary_);
+    }
+
     /// set paused
     function setPaused(bool paused_) external onlyOwner {
         paused = paused_;
         emit SetPaused(paused_);
     }
 
-    /// update storage
-    function file(File[] calldata files) external onlyOwner {
-        _file(files);
-        emit FilesUpdated(files);
+    /// set oracle
+    function setOracle(IOracle oracle_) external onlyOwner {
+        oracle = oracle_;
+        emit SetOracle(oracle_);
     }
+
+    // TODO: can we approve, swap, & forward in a single call?
+    // don't know the output amount of the swap.. may need delegatecall to handle properly
+    // (or have to xfr funds first to integration contract? which is maybe fine..)
 
     /// allow owner to execute arbitrary calls from swapper
     function execCalls(Call[] calldata calls)
@@ -215,38 +209,34 @@ contract Swapper is Owned {
         emit PayBack(msg.sender, msg.value);
     }
 
-    /// incentivizes third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(TradeParams[] calldata tradeParams, bytes calldata callbackData) external payable {
+    // TODO: refactor into smaller fns ?
+
+    /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
+    function flash(IOracle.BaseParams[] calldata bps, bytes calldata callbackData) external payable {
         if (paused) revert Paused();
 
+        /// xfr bps to msg.sender
+
         address _tokenToBeneficiary = tokenToBeneficiary;
-        uint256 amountToBeneficiary;
-        uint256 length = tradeParams.length;
-        // TODO: why use "this" instead of msg.sender?
-        // TODO: suppose "this" allows the concept of a swaqpper that uses someone elses oracle storage? but.. why
-        // not just use clone at that point?
-        uint256[] memory amountsToBeneficiary = oracle.getAmountsToBeneficiary(this, _tokenToBeneficiary, tradeParams);
+        uint256[] memory amountsToBeneficiary = oracle.getQuoteAmounts(_tokenToBeneficiary, bps);
+        uint256 length = bps.length;
         if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
+        uint256 amountToBeneficiary;
         {
             uint128 amountToTrader;
             address tokenToTrader;
             uint256 i;
             for (; i < length;) {
-                TradeParams calldata tp = tradeParams[i];
-                tokenToTrader = tp.token;
-                amountToTrader = tp.amount;
+                IOracle.BaseParams calldata bp = bps[i];
+                tokenToTrader = bp.baseToken;
+                amountToTrader = bp.baseAmount;
 
-                if (amountToTrader > address(this)._getBalance(tokenToTrader)) {
+                if (amountToTrader > tokenToTrader._balanceOf(address(this))) {
                     revert InsufficientFunds_InContract();
                 }
 
                 amountToBeneficiary += amountsToBeneficiary[i];
-
-                if (tokenToTrader._isETH()) {
-                    msg.sender.safeTransferETH(amountToTrader);
-                } else {
-                    tokenToTrader.safeTransfer(msg.sender, amountToTrader);
-                }
+                tokenToTrader._safeTransfer(msg.sender, amountToTrader);
 
                 unchecked {
                     ++i;
@@ -254,11 +244,16 @@ contract Swapper is Owned {
             }
         }
 
+        /// msg.sender callback
+
+        // TODO: should we be sending more info about which tokens were xfr'd? bps? or.. caller can encode themselves in data if they want ig
         ISwapperFlashCallback(msg.sender).swapperFlashCallback({
             tokenToBeneficiary: _tokenToBeneficiary,
             amountToBeneficiary: amountToBeneficiary,
             data: callbackData
         });
+
+        /// xfr amountsToBeneficiary [from msg.sender] + excess [already in contract] to beneficiary
 
         address _beneficiary = beneficiary;
         uint256 excessToBeneficiary;
@@ -282,61 +277,6 @@ contract Swapper is Owned {
             }
         }
 
-        emit Flash(msg.sender, tradeParams, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
-    }
-
-    /// -----------------------------------------------------------------------
-    /// functions - public & external - views
-    /// -----------------------------------------------------------------------
-
-    /// get storage
-    function getFile(File calldata incoming) external view returns (bytes memory) {
-        FileType what = incoming.what;
-        bytes memory data = incoming.data;
-
-        if (what == FileType.Beneficiary) {
-            return abi.encode(beneficiary);
-        } else if (what == FileType.TokenToBeneficiary) {
-            return abi.encode(tokenToBeneficiary);
-        } else if (what == FileType.Oracle) {
-            return abi.encode(oracle);
-        } else if (what == FileType.OracleFile) {
-            return oracle.getFile(this, abi.decode(data, (ISwapperOracle.File)));
-        } else {
-            revert UnsupportedFile();
-        }
-    }
-
-    /// get amounts to beneficiary for a set of trades
-    /// @dev call via ISwapperReadOnly to prevent state mod
-    function getAmountsToBeneficiary(TradeParams[] calldata tradeParams) external view returns (uint256[] memory) {
-        return oracle.getAmountsToBeneficiary(this, tokenToBeneficiary, tradeParams);
-    }
-
-    /// -----------------------------------------------------------------------
-    /// functions - private & internal
-    /// -----------------------------------------------------------------------
-
-    /// update storage
-    function _file(File[] memory files) internal {
-        uint256 i;
-        uint256 length = files.length;
-        for (; i < length;) {
-            File memory f = files[i];
-            FileType what = f.what;
-            bytes memory data = f.data;
-
-            if (what == FileType.Beneficiary) {
-                beneficiary = abi.decode(data, (address));
-            } else if (what == FileType.TokenToBeneficiary) {
-                tokenToBeneficiary = abi.decode(data, (address));
-            } else if (what == FileType.Oracle) {
-                oracle = abi.decode(data, (ISwapperOracle));
-            } else if (what == FileType.OracleFile) {
-                oracle.file(abi.decode(data, (ISwapperOracle.File)));
-            } else {
-                revert UnsupportedFile();
-            }
-        }
+        emit Flash(msg.sender, bps, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
     }
 }
