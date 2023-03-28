@@ -181,8 +181,7 @@ contract UniV3OracleImpl is Owned, IOracle {
     {
         uint256 length = quoteParams_.length;
         quoteAmounts = new uint256[](length);
-        uint256 i;
-        for (; i < length;) {
+        for (uint256 i; i < length;) {
             quoteAmounts[i] = _getQuoteAmount(quoteParams_[i]);
             unchecked {
                 ++i;
@@ -197,8 +196,7 @@ contract UniV3OracleImpl is Owned, IOracle {
     /// set pair overrides
     function _setPairOverrides(SetPairOverrideParams[] calldata params_) internal {
         uint256 length = params_.length;
-        uint256 i;
-        for (; i < length;) {
+        for (uint256 i; i < length;) {
             _setPairOverride(params_[i]);
             unchecked {
                 ++i;

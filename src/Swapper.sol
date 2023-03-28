@@ -177,8 +177,7 @@ contract Swapper is Owned {
         returnData = new bytes[](length);
 
         bool success;
-        uint256 i;
-        for (; i < length;) {
+        for (uint256 i; i < length;) {
             Call calldata calli = calls_[i];
             (success, returnData[i]) = calli.target.call{value: calli.value}(calli.callData);
             require(success, string(returnData[i]));
@@ -226,8 +225,7 @@ contract Swapper is Owned {
         {
             uint128 amountToTrader;
             address tokenToTrader;
-            uint256 i;
-            for (; i < length;) {
+            for (uint256 i; i < length;) {
                 IOracle.QuoteParams calldata qp = quoteParams_[i];
 
                 if (tokenToBeneficiary != qp.quotePair.quote) revert Invalid_QuoteToken();
