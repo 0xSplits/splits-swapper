@@ -5,9 +5,9 @@ import {ERC20} from "solmate/tokens/ERC20.sol";
 import {Owned} from "solmate/auth/Owned.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracleFactory.sol";
 
 import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
-import {IOracle} from "src/interfaces/IOracle.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
 
 /// @title Swapper

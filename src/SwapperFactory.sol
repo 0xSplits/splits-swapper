@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
+import {IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
 
-import {IOracle} from "src/interfaces/IOracle.sol";
-import {IOracleFactory} from "src/interfaces/IOracleFactory.sol";
 import {Swapper} from "src/Swapper.sol";
 
 /// @title SwapperFactory
