@@ -209,75 +209,78 @@ contract Swapper is Owned {
         emit PayBack(msg.sender, msg.value);
     }
 
-    // TODO: refactor into smaller fns ?
-
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
     function flash(IOracle.QuoteParams[] calldata quoteParams_, bytes calldata callbackData_) external payable {
         if ($paused) revert Paused();
 
-        /// xfr quoteParams_ to msg.sender
-
         address tokenToBeneficiary = $tokenToBeneficiary;
-        uint256[] memory amountsToBeneficiary = $oracle.getQuoteAmounts(quoteParams_);
-        uint256 length = quoteParams_.length;
-        if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
-        uint256 amountToBeneficiary;
-        {
-            uint128 amountToTrader;
-            address tokenToTrader;
-            for (uint256 i; i < length;) {
-                IOracle.QuoteParams calldata qp = quoteParams_[i];
+        (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary) =
+            _transferToTrader(tokenToBeneficiary, quoteParams_);
 
-                if (tokenToBeneficiary != qp.quotePair.quote) revert Invalid_QuoteToken();
-                tokenToTrader = qp.quotePair.base;
-                amountToTrader = qp.baseAmount;
-
-                if (amountToTrader > tokenToTrader._balanceOf(address(this))) {
-                    revert InsufficientFunds_InContract();
-                }
-
-                amountToBeneficiary += amountsToBeneficiary[i];
-                tokenToTrader._safeTransfer(msg.sender, amountToTrader);
-
-                unchecked {
-                    ++i;
-                }
-            }
-        }
-
-        /// msg.sender callback
-
-        // TODO: should we be sending more info about which tokens were xfr'd? quoteParams_? or.. caller can encode themselves in data if they want ig
         ISwapperFlashCallback(msg.sender).swapperFlashCallback({
             tokenToBeneficiary: tokenToBeneficiary,
             amountToBeneficiary: amountToBeneficiary,
             data: callbackData_
         });
 
-        /// xfr amountsToBeneficiary [from msg.sender] + excess [already in contract] to beneficiary
+        uint256 excessToBeneficiary = _transferToBeneficiary(tokenToBeneficiary, amountToBeneficiary);
 
+        emit Flash(msg.sender, quoteParams_, tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
+    }
+
+    function _transferToTrader(address tokenToBeneficiary_, IOracle.QuoteParams[] calldata quoteParams_)
+        internal
+        returns (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary)
+    {
+        amountsToBeneficiary = $oracle.getQuoteAmounts(quoteParams_);
+        uint256 length = quoteParams_.length;
+        if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
+
+        uint128 amountToTrader;
+        address tokenToTrader;
+        for (uint256 i; i < length;) {
+            IOracle.QuoteParams calldata qp = quoteParams_[i];
+
+            if (tokenToBeneficiary_ != qp.quotePair.quote) revert Invalid_QuoteToken();
+            tokenToTrader = qp.quotePair.base;
+            amountToTrader = qp.baseAmount;
+
+            if (amountToTrader > tokenToTrader._balanceOf(address(this))) {
+                revert InsufficientFunds_InContract();
+            }
+
+            amountToBeneficiary += amountsToBeneficiary[i];
+            tokenToTrader._safeTransfer(msg.sender, amountToTrader);
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _transferToBeneficiary(address tokenToBeneficiary_, uint256 amountToBeneficiary_)
+        internal
+        returns (uint256 excessToBeneficiary)
+    {
         address beneficiary = $beneficiary;
-        uint256 excessToBeneficiary;
-        if (tokenToBeneficiary._isETH()) {
-            if ($_payback < amountToBeneficiary) {
+        if (tokenToBeneficiary_._isETH()) {
+            if ($_payback < amountToBeneficiary_) {
                 revert InsufficientFunds_FromTrader();
             }
             $_payback = 0;
 
             // send eth to beneficiary
             uint256 ethBalance = address(this).balance;
-            excessToBeneficiary = ethBalance - amountToBeneficiary;
+            excessToBeneficiary = ethBalance - amountToBeneficiary_;
             beneficiary.safeTransferETH(ethBalance);
         } else {
-            tokenToBeneficiary.safeTransferFrom(msg.sender, beneficiary, amountToBeneficiary);
+            tokenToBeneficiary_.safeTransferFrom(msg.sender, beneficiary, amountToBeneficiary_);
 
             // flush excess tokenToBeneficiary to beneficiary
-            excessToBeneficiary = ERC20(tokenToBeneficiary).balanceOf(address(this));
+            excessToBeneficiary = ERC20(tokenToBeneficiary_).balanceOf(address(this));
             if (excessToBeneficiary > 0) {
-                tokenToBeneficiary.safeTransfer(beneficiary, excessToBeneficiary);
+                tokenToBeneficiary_.safeTransfer(beneficiary, excessToBeneficiary);
             }
         }
-
-        emit Flash(msg.sender, quoteParams_, tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
     }
 }
