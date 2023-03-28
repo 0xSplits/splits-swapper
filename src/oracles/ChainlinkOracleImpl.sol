@@ -187,8 +187,7 @@ contract ChainlinkOracleImpl is Owned, IOracle {
     function getQuoteAmounts(QuoteParams[] calldata qps_) external view returns (uint256[] memory quoteAmounts) {
         uint256 length = qps_.length;
         quoteAmounts = new uint256[](length);
-        uint256 i;
-        for (; i < length;) {
+        for (uint256 i; i < length;) {
             quoteAmounts[i] = _getQuoteAmount(qps_[i]);
             unchecked {
                 ++i;
@@ -203,8 +202,7 @@ contract ChainlinkOracleImpl is Owned, IOracle {
     /// set token overrides
     function _setTokenOverrides(SetTokenOverrideParams[] calldata params_) internal {
         uint256 length = params_.length;
-        uint256 i;
-        for (; i < length;) {
+        for (uint256 i; i < length;) {
             _setTokenOverride(params_[i]);
             unchecked {
                 ++i;
@@ -220,14 +218,17 @@ contract ChainlinkOracleImpl is Owned, IOracle {
     /// set pair overrides
     function _setPairOverrides(SetPairOverrideParams[] calldata params_) internal {
         uint256 length = params_.length;
-        uint256 i;
-        for (; i < length;) {
+        for (uint256 i; i < length;) {
             _setPairOverride(params_[i]);
             unchecked {
                 ++i;
             }
         }
     }
+
+    // TODO: since pairOverride.path order matters (from cToken0 to cToken1), may either want to:
+    // require pair to be sorted OR
+    // reverse array if pair is unsorted
 
     /// set pair override
     function _setPairOverride(SetPairOverrideParams calldata params_) internal {
@@ -239,15 +240,12 @@ contract ChainlinkOracleImpl is Owned, IOracle {
     /// functions - private & internal - views
     /// -----------------------------------------------------------------------
 
-    // TODO: break into smaller fns
-
     /// get quote amount for a trade
     function _getQuoteAmount(QuoteParams calldata quoteParams_) internal view returns (uint256) {
         ConvertedQuotePair memory cqp = quoteParams_.quotePair._convert(_convertToken);
         SortedConvertedQuotePair memory scqp = cqp._sort();
 
-        // TODO: how does this handle the dynamic array?
-        // I think it.... just doesn't?
+        // TODO: make sure this copies po.path to memory
         PairOverride memory po = _getPairOverride(scqp);
         if (po.staleAfter == 0) {
             po.staleAfter = $defaultStaleAfter;
@@ -256,86 +254,23 @@ contract ChainlinkOracleImpl is Owned, IOracle {
             po.scaledOfferFactor = $defaultScaledOfferFactor;
         }
 
+        // TODO: make sure this just creates a pointer
+        AggregatorV3Interface[] memory path = po.path;
         uint256 unscaledAmountToBeneficiary = uint256(quoteParams_.baseAmount);
         // skip oracle if converted tokens are equal
         // (can't return early, still need to adjust decimals)
         if (scqp.cToken0 != scqp.cToken1) {
-            if (po.path.length == 0) {
-                address[] memory intermediaryTokens = abi.decode(quoteParams_.data, (address[]));
-                uint256 itLength = intermediaryTokens.length;
-                po.path = new AggregatorV3Interface[](itLength+1);
-
-                uint256 j;
-                address base = cqp.cBase;
-                address quote;
-                for (; j < itLength;) {
-                    quote = intermediaryTokens[j];
-                    // reverts if feed not found
-                    po.path[j] = clFeedRegistry.getFeed({base: base, quote: quote});
-                    base = quote;
-                    unchecked {
-                        ++j;
-                    }
-                }
-                quote = cqp.cQuote;
-                po.path[itLength] = clFeedRegistry.getFeed({base: base, quote: quote});
+            if (path.length == 0) {
+                path = _getPathFromQuoteParams(quoteParams_, cqp);
             } else if (cqp.cBase != scqp.cToken0) {
-                // paths are stored from cToken0 to cToken1; reverse if necessary
-
-                address[] memory casted;
-                AggregatorV3Interface[] memory p = po.path;
-                /// @solidity memory-safe-assembly
-                assembly {
-                    casted := p
-                }
-                // happens in-memory; reverses po.path
-                casted.reverse();
+                // paths are stored from cToken0 to cToken1; reverse if cBase == cToken1
+                _reverse(path);
             }
 
-            AggregatorV3Interface priceFeed;
-            int256 answer;
-            uint256 updatedAt;
-            uint8 priceDecimals;
-            uint256 i;
-            uint256 length = po.path.length;
-            for (; i < length;) {
-                priceFeed = po.path[i];
-
-                (
-                    , /* uint80 roundId, */
-                    answer,
-                    , /* uint256 startedAt, */
-                    updatedAt,
-                    /* uint80 answeredInRound */
-                ) = priceFeed.latestRoundData();
-
-                if (updatedAt < block.timestamp - po.staleAfter) {
-                    revert StalePrice(priceFeed, updatedAt);
-                }
-                if (answer < 0) {
-                    revert NegativePrice(priceFeed, answer);
-                }
-
-                priceDecimals = priceFeed.decimals();
-                unscaledAmountToBeneficiary =
-                    unscaledAmountToBeneficiary * uint256(answer) / 10 ** uint256(priceDecimals);
-
-                unchecked {
-                    ++i;
-                }
-            }
+            unscaledAmountToBeneficiary = _scaleAmountByFeeds(unscaledAmountToBeneficiary, path, po.staleAfter);
         }
 
-        uint8 baseDecimals = quoteParams_.quotePair.base._getDecimals();
-        uint8 quoteDecimals = quoteParams_.quotePair.quote._getDecimals();
-
-        int256 decimalAdjustment = int256(uint256(quoteDecimals)) - int256(uint256(baseDecimals));
-        if (decimalAdjustment > 0) {
-            unscaledAmountToBeneficiary *= 10 ** uint256(decimalAdjustment);
-        } else {
-            unscaledAmountToBeneficiary /= 10 ** uint256(-decimalAdjustment);
-        }
-
+        unscaledAmountToBeneficiary = _adjustDecimals(unscaledAmountToBeneficiary, quoteParams_);
         return unscaledAmountToBeneficiary * po.scaledOfferFactor / PERCENTAGE_SCALE;
     }
 
@@ -356,5 +291,95 @@ contract ChainlinkOracleImpl is Owned, IOracle {
     /// convert eth (0x0) to weth
     function _convertToken(address token_) internal view returns (address) {
         return (token_._isETH() || token_ == weth9) ? clETH : $tokenOverrides[token_];
+    }
+
+    // TODO figure out array pointers here
+    /// TODO
+    function _getPathFromQuoteParams(QuoteParams calldata quoteParams_, ConvertedQuotePair memory cqp)
+        internal
+        view
+        returns (AggregatorV3Interface[] memory path)
+    {
+        address[] memory intermediaryTokens = abi.decode(quoteParams_.data, (address[]));
+        uint256 itLength = intermediaryTokens.length;
+        path = new AggregatorV3Interface[](itLength+1);
+
+        address base = cqp.cBase;
+        address quote;
+        for (uint256 i; i < itLength;) {
+            quote = intermediaryTokens[i];
+            // reverts if feed not found
+            path[i] = clFeedRegistry.getFeed({base: base, quote: quote});
+            base = quote;
+            unchecked {
+                ++i;
+            }
+        }
+        quote = cqp.cQuote;
+        path[itLength] = clFeedRegistry.getFeed({base: base, quote: quote});
+    }
+
+    /// reverse AggregatorV3Interface[] in-memory
+    function _reverse(AggregatorV3Interface[] memory path_) internal pure {
+        address[] memory casted;
+        /// @solidity memory-safe-assembly
+        assembly {
+            casted := path_
+        }
+        // happens in-memory; reverses path
+        casted.reverse();
+    }
+
+    function _scaleAmountByFeeds(
+        uint256 unscaledAmountToBeneficiary_,
+        AggregatorV3Interface[] memory path_,
+        uint32 staleAfter_
+    ) internal view returns (uint256) {
+        AggregatorV3Interface priceFeed;
+        int256 answer;
+        uint256 updatedAt;
+        uint8 priceDecimals;
+        uint256 length = path_.length;
+        for (uint256 i; i < length;) {
+            priceFeed = path_[i];
+
+            (
+                , /* uint80 roundId, */
+                answer,
+                , /* uint256 startedAt, */
+                updatedAt,
+                /* uint80 answeredInRound */
+            ) = priceFeed.latestRoundData();
+
+            if (updatedAt < block.timestamp - staleAfter_) {
+                revert StalePrice(priceFeed, updatedAt);
+            }
+            if (answer < 0) {
+                revert NegativePrice(priceFeed, answer);
+            }
+
+            priceDecimals = priceFeed.decimals();
+            unscaledAmountToBeneficiary_ = unscaledAmountToBeneficiary_ * uint256(answer) / 10 ** uint256(priceDecimals);
+
+            unchecked {
+                ++i;
+            }
+        }
+        return unscaledAmountToBeneficiary_;
+    }
+
+    function _adjustDecimals(uint256 unscaledAmountToBeneficiary_, QuoteParams calldata quoteParams_)
+        internal
+        view
+        returns (uint256)
+    {
+        uint8 baseDecimals = quoteParams_.quotePair.base._getDecimals();
+        uint8 quoteDecimals = quoteParams_.quotePair.quote._getDecimals();
+
+        int256 decimalAdjustment = int256(uint256(quoteDecimals)) - int256(uint256(baseDecimals));
+        if (decimalAdjustment > 0) {
+            return unscaledAmountToBeneficiary_ * 10 ** uint256(decimalAdjustment);
+        }
+        return unscaledAmountToBeneficiary_ / 10 ** uint256(-decimalAdjustment);
     }
 }
