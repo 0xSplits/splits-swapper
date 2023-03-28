@@ -7,7 +7,7 @@ import {OracleLibrary} from "v3-periphery/libraries/OracleLibrary.sol";
 
 import {IOracle} from "src/interfaces/IOracle.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
-import {TokenPair, ConvertedTokenPair, SortedConvertedTokenPair} from "src/utils/TokenPairs.sol";
+import {QuotePair, ConvertedQuotePair, SortedConvertedQuotePair} from "src/utils/QuotePair.sol";
 
 /// @title UniV3 Oracle Implementation
 /// @author 0xSplits
@@ -31,7 +31,7 @@ contract UniV3OracleImpl is Owned, IOracle {
     /// -----------------------------------------------------------------------
 
     struct SetPairOverrideParams {
-        TokenPair tp;
+        QuotePair quotePair;
         PairOverride pairOverride;
     }
 
@@ -169,17 +169,21 @@ contract UniV3OracleImpl is Owned, IOracle {
 
     // TODO: array?
     /// get pair override for a token pair
-    function getPairOverride(TokenPair calldata tp_) external view returns (PairOverride memory) {
-        return _getPairOverride(_convertAndSortTokenPair(tp_));
+    function getPairOverride(QuotePair calldata quotePair_) external view returns (PairOverride memory) {
+        return _getPairOverride(_convertAndSortQuotePair(quotePair_));
     }
 
     /// get quote amounts for a set of trades
-    function getQuoteAmounts(QuoteParams[] calldata qps_) external view returns (uint256[] memory quoteAmounts) {
-        uint256 length = qps_.length;
+    function getQuoteAmounts(QuoteParams[] calldata quoteParams_)
+        external
+        view
+        returns (uint256[] memory quoteAmounts)
+    {
+        uint256 length = quoteParams_.length;
         quoteAmounts = new uint256[](length);
         uint256 i;
         for (; i < length;) {
-            quoteAmounts[i] = _getQuoteAmount(qps_[i]);
+            quoteAmounts[i] = _getQuoteAmount(quoteParams_[i]);
             unchecked {
                 ++i;
             }
@@ -189,52 +193,6 @@ contract UniV3OracleImpl is Owned, IOracle {
     /// -----------------------------------------------------------------------
     /// functions - private & internal
     /// -----------------------------------------------------------------------
-
-    /// get quote amount for a trade
-    function _getQuoteAmount(QuoteParams calldata qp_) internal view returns (uint256) {
-        ConvertedTokenPair memory ctp =
-            TokenPair({tokenA: qp_.baseToken, tokenB: qp_.quoteToken})._convert(_convertToken);
-        SortedConvertedTokenPair memory sctp = ctp._sort();
-        PairOverride memory po = _getPairOverride(sctp);
-
-        if (po.scaledOfferFactor == 0) {
-            po.scaledOfferFactor = $defaultScaledOfferFactor;
-        }
-
-        // skip oracle if converted tokens are equal
-        if (sctp.cToken0 == sctp.cToken1) {
-            return qp_.baseAmount * po.scaledOfferFactor / PERCENTAGE_SCALE;
-        }
-
-        if (po.fee == 0) {
-            po.fee = $defaultFee;
-        }
-        if (po.period == 0) {
-            po.period = $defaultPeriod;
-        }
-
-        address pool = uniswapV3Factory.getPool(sctp.cToken0, sctp.cToken1, po.fee);
-        if (pool == address(0)) {
-            revert Pool_DoesNotExist();
-        }
-
-        // reverts if period is zero or > oldest observation
-        (int24 arithmeticMeanTick,) = OracleLibrary.consult({pool: pool, secondsAgo: po.period});
-
-        uint256 unscaledAmountToBeneficiary = OracleLibrary.getQuoteAtTick({
-            tick: arithmeticMeanTick,
-            baseAmount: qp_.baseAmount,
-            baseToken: ctp.cTokenA,
-            quoteToken: ctp.cTokenB
-        });
-
-        return unscaledAmountToBeneficiary * po.scaledOfferFactor / PERCENTAGE_SCALE;
-    }
-
-    /// get pair overrides
-    function _getPairOverride(SortedConvertedTokenPair memory sctp_) internal view returns (PairOverride memory) {
-        return $_pairOverrides[sctp_.cToken0][sctp_.cToken1];
-    }
 
     /// set pair overrides
     function _setPairOverrides(SetPairOverrideParams[] calldata params_) internal {
@@ -250,13 +208,66 @@ contract UniV3OracleImpl is Owned, IOracle {
 
     /// set pair override
     function _setPairOverride(SetPairOverrideParams calldata params_) internal {
-        SortedConvertedTokenPair memory sctp = _convertAndSortTokenPair(params_.tp);
-        $_pairOverrides[sctp.cToken0][sctp.cToken1] = params_.pairOverride;
+        SortedConvertedQuotePair memory scqp = _convertAndSortQuotePair(params_.quotePair);
+        $_pairOverrides[scqp.cToken0][scqp.cToken1] = params_.pairOverride;
+    }
+
+    /// -----------------------------------------------------------------------
+    /// functions - private & internal - views
+    /// -----------------------------------------------------------------------
+
+    /// get quote amount for a trade
+    function _getQuoteAmount(QuoteParams calldata quoteParams_) internal view returns (uint256) {
+        ConvertedQuotePair memory cqp = quoteParams_.quotePair._convert(_convertToken);
+        SortedConvertedQuotePair memory scqp = cqp._sort();
+        PairOverride memory po = _getPairOverride(scqp);
+
+        if (po.scaledOfferFactor == 0) {
+            po.scaledOfferFactor = $defaultScaledOfferFactor;
+        }
+
+        // skip oracle if converted tokens are equal
+        if (scqp.cToken0 == scqp.cToken1) {
+            return quoteParams_.baseAmount * po.scaledOfferFactor / PERCENTAGE_SCALE;
+        }
+
+        if (po.fee == 0) {
+            po.fee = $defaultFee;
+        }
+        if (po.period == 0) {
+            po.period = $defaultPeriod;
+        }
+
+        address pool = uniswapV3Factory.getPool(scqp.cToken0, scqp.cToken1, po.fee);
+        if (pool == address(0)) {
+            revert Pool_DoesNotExist();
+        }
+
+        // reverts if period is zero or > oldest observation
+        (int24 arithmeticMeanTick,) = OracleLibrary.consult({pool: pool, secondsAgo: po.period});
+
+        uint256 unscaledAmountToBeneficiary = OracleLibrary.getQuoteAtTick({
+            tick: arithmeticMeanTick,
+            baseAmount: quoteParams_.baseAmount,
+            baseToken: cqp.cBase,
+            quoteToken: cqp.cQuote
+        });
+
+        return unscaledAmountToBeneficiary * po.scaledOfferFactor / PERCENTAGE_SCALE;
+    }
+
+    /// get pair overrides
+    function _getPairOverride(SortedConvertedQuotePair memory scqp_) internal view returns (PairOverride memory) {
+        return $_pairOverrides[scqp_.cToken0][scqp_.cToken1];
     }
 
     /// convert & sort tokens into canonical order
-    function _convertAndSortTokenPair(TokenPair calldata tp_) internal view returns (SortedConvertedTokenPair memory) {
-        return tp_._convert(_convertToken)._sort();
+    function _convertAndSortQuotePair(QuotePair calldata quotePair_)
+        internal
+        view
+        returns (SortedConvertedQuotePair memory)
+    {
+        return quotePair_._convert(_convertToken)._sort();
     }
 
     /// convert eth (0x0) to weth

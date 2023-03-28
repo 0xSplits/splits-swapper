@@ -213,14 +213,14 @@ contract Swapper is Owned {
     // TODO: refactor into smaller fns ?
 
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(IOracle.QuoteParams[] calldata qps_, bytes calldata callbackData_) external payable {
+    function flash(IOracle.QuoteParams[] calldata quoteParams_, bytes calldata callbackData_) external payable {
         if ($paused) revert Paused();
 
-        /// xfr qps_ to msg.sender
+        /// xfr quoteParams_ to msg.sender
 
         address tokenToBeneficiary = $tokenToBeneficiary;
-        uint256[] memory amountsToBeneficiary = $oracle.getQuoteAmounts(qps_);
-        uint256 length = qps_.length;
+        uint256[] memory amountsToBeneficiary = $oracle.getQuoteAmounts(quoteParams_);
+        uint256 length = quoteParams_.length;
         if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
         uint256 amountToBeneficiary;
         {
@@ -228,10 +228,10 @@ contract Swapper is Owned {
             address tokenToTrader;
             uint256 i;
             for (; i < length;) {
-                IOracle.QuoteParams calldata qp = qps_[i];
+                IOracle.QuoteParams calldata qp = quoteParams_[i];
 
-                if (tokenToBeneficiary != qp.quoteToken) revert Invalid_QuoteToken();
-                tokenToTrader = qp.baseToken;
+                if (tokenToBeneficiary != qp.quotePair.quote) revert Invalid_QuoteToken();
+                tokenToTrader = qp.quotePair.base;
                 amountToTrader = qp.baseAmount;
 
                 if (amountToTrader > tokenToTrader._balanceOf(address(this))) {
@@ -249,7 +249,7 @@ contract Swapper is Owned {
 
         /// msg.sender callback
 
-        // TODO: should we be sending more info about which tokens were xfr'd? qps_? or.. caller can encode themselves in data if they want ig
+        // TODO: should we be sending more info about which tokens were xfr'd? quoteParams_? or.. caller can encode themselves in data if they want ig
         ISwapperFlashCallback(msg.sender).swapperFlashCallback({
             tokenToBeneficiary: tokenToBeneficiary,
             amountToBeneficiary: amountToBeneficiary,
@@ -280,6 +280,6 @@ contract Swapper is Owned {
             }
         }
 
-        emit Flash(msg.sender, qps_, tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
+        emit Flash(msg.sender, quoteParams_, tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
     }
 }

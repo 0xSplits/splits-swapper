@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import "src/SwapperFactory.sol";
-import "src/Swapper.sol";
+import {SwapperFactory} from "src/SwapperFactory.sol";
+import {Swapper} from "src/Swapper.sol";
 
 /// @title SwapperCallbackValidation
 /// @author 0xSplits

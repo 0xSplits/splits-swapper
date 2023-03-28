@@ -9,7 +9,7 @@ import {LibSort} from "solady/utils/LibSort.sol";
 
 import {IOracle} from "src/interfaces/IOracle.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
-import {TokenPair, ConvertedTokenPair, SortedConvertedTokenPair} from "src/utils/TokenPairs.sol";
+import {QuotePair, ConvertedQuotePair, SortedConvertedQuotePair} from "src/utils/QuotePair.sol";
 
 /// @title Chainlink Oracle Implementation
 /// @author 0xSplits
@@ -27,8 +27,8 @@ contract ChainlinkOracleImpl is Owned, IOracle {
     /// -----------------------------------------------------------------------
 
     error Unauthorized();
-    error StalePrice(AggregatorV3Interface priceFeed, uint256 ts);
-    error NegativePrice(AggregatorV3Interface priceFeed, int256 p);
+    error StalePrice(AggregatorV3Interface priceFeed, uint256 timestamp);
+    error NegativePrice(AggregatorV3Interface priceFeed, int256 price);
 
     /// -----------------------------------------------------------------------
     /// structs
@@ -40,7 +40,7 @@ contract ChainlinkOracleImpl is Owned, IOracle {
     }
 
     struct SetPairOverrideParams {
-        TokenPair tp;
+        QuotePair qp;
         PairOverride pairOverride;
     }
 
@@ -179,8 +179,8 @@ contract ChainlinkOracleImpl is Owned, IOracle {
 
     // TODO: array?
     /// get pair override for a token pair
-    function getPairOverride(TokenPair calldata tp_) external view returns (PairOverride memory) {
-        return _getPairOverride(_convertAndSortTokenPair(tp_));
+    function getPairOverride(QuotePair calldata quotePair_) external view returns (PairOverride memory) {
+        return _getPairOverride(_convertAndSortQuotePair(quotePair_));
     }
 
     /// get quote amounts for a set of trades
@@ -200,15 +200,55 @@ contract ChainlinkOracleImpl is Owned, IOracle {
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
+    /// set token overrides
+    function _setTokenOverrides(SetTokenOverrideParams[] calldata params_) internal {
+        uint256 length = params_.length;
+        uint256 i;
+        for (; i < length;) {
+            _setTokenOverride(params_[i]);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /// set token override
+    function _setTokenOverride(SetTokenOverrideParams calldata params_) internal {
+        $tokenOverrides[params_.token] = params_.tokenOverride;
+    }
+
+    /// set pair overrides
+    function _setPairOverrides(SetPairOverrideParams[] calldata params_) internal {
+        uint256 length = params_.length;
+        uint256 i;
+        for (; i < length;) {
+            _setPairOverride(params_[i]);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /// set pair override
+    function _setPairOverride(SetPairOverrideParams calldata params_) internal {
+        SortedConvertedQuotePair memory scqp = _convertAndSortQuotePair(params_.qp);
+        $_pairOverrides[scqp.cToken0][scqp.cToken1] = params_.pairOverride;
+    }
+
+    /// -----------------------------------------------------------------------
+    /// functions - private & internal - views
+    /// -----------------------------------------------------------------------
+
+    // TODO: break into smaller fns
+
     /// get quote amount for a trade
-    function _getQuoteAmount(QuoteParams calldata qp_) internal view returns (uint256) {
-        ConvertedTokenPair memory ctp =
-            TokenPair({tokenA: qp_.baseToken, tokenB: qp_.quoteToken})._convert(_convertToken);
-        SortedConvertedTokenPair memory sctp = ctp._sort();
+    function _getQuoteAmount(QuoteParams calldata quoteParams_) internal view returns (uint256) {
+        ConvertedQuotePair memory cqp = quoteParams_.quotePair._convert(_convertToken);
+        SortedConvertedQuotePair memory scqp = cqp._sort();
 
         // TODO: how does this handle the dynamic array?
         // I think it.... just doesn't?
-        PairOverride memory po = _getPairOverride(sctp);
+        PairOverride memory po = _getPairOverride(scqp);
         if (po.staleAfter == 0) {
             po.staleAfter = $defaultStaleAfter;
         }
@@ -216,17 +256,17 @@ contract ChainlinkOracleImpl is Owned, IOracle {
             po.scaledOfferFactor = $defaultScaledOfferFactor;
         }
 
-        uint256 unscaledAmountToBeneficiary = uint256(qp_.baseAmount);
+        uint256 unscaledAmountToBeneficiary = uint256(quoteParams_.baseAmount);
         // skip oracle if converted tokens are equal
         // (can't return early, still need to adjust decimals)
-        if (sctp.cToken0 != sctp.cToken1) {
+        if (scqp.cToken0 != scqp.cToken1) {
             if (po.path.length == 0) {
-                address[] memory intermediaryTokens = abi.decode(qp_.data, (address[]));
+                address[] memory intermediaryTokens = abi.decode(quoteParams_.data, (address[]));
                 uint256 itLength = intermediaryTokens.length;
                 po.path = new AggregatorV3Interface[](itLength+1);
 
                 uint256 j;
-                address base = ctp.cTokenA;
+                address base = cqp.cBase;
                 address quote;
                 for (; j < itLength;) {
                     quote = intermediaryTokens[j];
@@ -237,9 +277,9 @@ contract ChainlinkOracleImpl is Owned, IOracle {
                         ++j;
                     }
                 }
-                quote = ctp.cTokenB;
+                quote = cqp.cQuote;
                 po.path[itLength] = clFeedRegistry.getFeed({base: base, quote: quote});
-            } else if (ctp.cTokenA != sctp.cToken0) {
+            } else if (cqp.cBase != scqp.cToken0) {
                 // paths are stored from cToken0 to cToken1; reverse if necessary
 
                 address[] memory casted;
@@ -286,8 +326,8 @@ contract ChainlinkOracleImpl is Owned, IOracle {
             }
         }
 
-        uint8 baseDecimals = qp_.baseToken._getDecimals();
-        uint8 quoteDecimals = qp_.quoteToken._getDecimals();
+        uint8 baseDecimals = quoteParams_.quotePair.base._getDecimals();
+        uint8 quoteDecimals = quoteParams_.quotePair.quote._getDecimals();
 
         int256 decimalAdjustment = int256(uint256(quoteDecimals)) - int256(uint256(baseDecimals));
         if (decimalAdjustment > 0) {
@@ -299,49 +339,18 @@ contract ChainlinkOracleImpl is Owned, IOracle {
         return unscaledAmountToBeneficiary * po.scaledOfferFactor / PERCENTAGE_SCALE;
     }
 
-    /// set token overrides
-    function _setTokenOverrides(SetTokenOverrideParams[] calldata params_) internal {
-        uint256 length = params_.length;
-        uint256 i;
-        for (; i < length;) {
-            _setTokenOverride(params_[i]);
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    /// set token override
-    function _setTokenOverride(SetTokenOverrideParams calldata params_) internal {
-        $tokenOverrides[params_.token] = params_.tokenOverride;
-    }
-
     /// get pair override
-    function _getPairOverride(SortedConvertedTokenPair memory sctp_) internal view returns (PairOverride memory) {
-        return $_pairOverrides[sctp_.cToken0][sctp_.cToken1];
-    }
-
-    /// set pair overrides
-    function _setPairOverrides(SetPairOverrideParams[] calldata params_) internal {
-        uint256 length = params_.length;
-        uint256 i;
-        for (; i < length;) {
-            _setPairOverride(params_[i]);
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    /// set pair override
-    function _setPairOverride(SetPairOverrideParams calldata params_) internal {
-        SortedConvertedTokenPair memory sctp = _convertAndSortTokenPair(params_.tp);
-        $_pairOverrides[sctp.cToken0][sctp.cToken1] = params_.pairOverride;
+    function _getPairOverride(SortedConvertedQuotePair memory scqp_) internal view returns (PairOverride memory) {
+        return $_pairOverrides[scqp_.cToken0][scqp_.cToken1];
     }
 
     /// convert & sort tokens into canonical order
-    function _convertAndSortTokenPair(TokenPair calldata tp_) internal view returns (SortedConvertedTokenPair memory) {
-        return tp_._convert(_convertToken)._sort();
+    function _convertAndSortQuotePair(QuotePair calldata quotePair_)
+        internal
+        view
+        returns (SortedConvertedQuotePair memory)
+    {
+        return quotePair_._convert(_convertToken)._sort();
     }
 
     /// convert eth (0x0) to weth
