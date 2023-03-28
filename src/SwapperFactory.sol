@@ -34,7 +34,7 @@ contract SwapperFactory {
     /// -----------------------------------------------------------------------
 
     /// mapping of canonical swappers for flash callback validation
-    mapping(Swapper => bool) public isSwapper;
+    mapping(Swapper => bool) public $isSwapper;
 
     /// -----------------------------------------------------------------------
     /// constructor
@@ -50,56 +50,59 @@ contract SwapperFactory {
     /// functions - public & external
     /// -----------------------------------------------------------------------
 
-    function createSwapper(address owner, bool paused, address beneficiary, address tokenToBeneficiary, IOracle oracle)
-        external
-        returns (Swapper swapper)
-    {
+    function createSwapper(
+        address owner_,
+        bool paused_,
+        address beneficiary_,
+        address tokenToBeneficiary_,
+        IOracle oracle_
+    ) external returns (Swapper swapper) {
         swapper = new Swapper({
-            owner_: owner,
-            paused_: paused,
-            beneficiary_: beneficiary,
-            tokenToBeneficiary_: tokenToBeneficiary,
-            oracle_: oracle
+            owner_: owner_,
+            paused_: paused_,
+            beneficiary_: beneficiary_,
+            tokenToBeneficiary_: tokenToBeneficiary_,
+            oracle_: oracle_
         });
 
-        isSwapper[swapper] = true;
+        $isSwapper[swapper] = true;
 
         emit CreateSwapper({
             swapper: swapper,
-            owner: owner,
-            paused: paused,
-            beneficiary: beneficiary,
-            tokenToBeneficiary: tokenToBeneficiary,
-            oracle: oracle
+            owner: owner_,
+            paused: paused_,
+            beneficiary: beneficiary_,
+            tokenToBeneficiary: tokenToBeneficiary_,
+            oracle: oracle_
         });
     }
 
     function createOracleAndSwapper(
-        address owner,
-        bool paused,
-        address beneficiary,
-        address tokenToBeneficiary,
-        IOracleFactory oracleFactory,
-        bytes calldata oracleInit
+        address owner_,
+        bool paused_,
+        address beneficiary_,
+        address tokenToBeneficiary_,
+        IOracleFactory oracleFactory_,
+        bytes calldata oracleInit_
     ) external returns (Swapper swapper) {
-        IOracle oracle = oracleFactory.createOracle(oracleInit);
+        IOracle oracle = oracleFactory_.createOracle(oracleInit_);
 
         swapper = new Swapper({
-            owner_: owner,
-            paused_: paused,
-            beneficiary_: beneficiary,
-            tokenToBeneficiary_: tokenToBeneficiary,
+            owner_: owner_,
+            paused_: paused_,
+            beneficiary_: beneficiary_,
+            tokenToBeneficiary_: tokenToBeneficiary_,
             oracle_: oracle
             });
 
-        isSwapper[swapper] = true;
+        $isSwapper[swapper] = true;
 
         emit CreateSwapper({
             swapper: swapper,
-            owner: owner,
-            paused: paused,
-            beneficiary: beneficiary,
-            tokenToBeneficiary: tokenToBeneficiary,
+            owner: owner_,
+            paused: paused_,
+            beneficiary: beneficiary_,
+            tokenToBeneficiary: tokenToBeneficiary_,
             oracle: oracle
         });
     }

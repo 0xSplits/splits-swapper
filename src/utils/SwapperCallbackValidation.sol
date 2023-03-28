@@ -10,10 +10,10 @@ import "src/Swapper.sol";
 /// @dev inspired by UniswapV3's CallbackValidation
 library SwapperCallbackValidation {
     /// Returns whether a given swapper address is valid
-    /// @param factory Address of SwapperFactory
-    /// @param swapper Address of swapper to validate
+    /// @param factory_ Address of SwapperFactory
+    /// @param swapper_ Address of swapper to validate
     /// @return valid Boolean of whether swapper address is valid
-    function verifyCallback(SwapperFactory factory, Swapper swapper) internal view returns (bool valid) {
-        return factory.isSwapper(swapper);
+    function verifyCallback(SwapperFactory factory_, Swapper swapper_) internal view returns (bool valid) {
+        return factory_.$isSwapper(swapper_);
     }
 }

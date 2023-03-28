@@ -79,24 +79,24 @@ contract UniV3OracleImpl is Owned, IOracle {
     /// fee = 30_00 = 0.3% is the uniswap default
     /// unless overriden, getQuoteAmounts will revert if a non-permitted pool fee is used
     /// 3 bytes
-    uint24 public defaultFee;
+    uint24 public $defaultFee;
 
     /// default twap period
     /// @dev unless overriden, getQuoteAmounts will revert if zero
     /// 4 bytes
-    uint32 public defaultPeriod;
+    uint32 public $defaultPeriod;
 
     /// default price scaling factor
     /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100% = no discount or premium
     /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
     /// 4 bytes
-    uint32 public defaultScaledOfferFactor;
+    uint32 public $defaultScaledOfferFactor;
 
     /// slot 1 - 0 bytes free
 
     /// overrides for specific token pairs
     /// 32 bytes
-    mapping(address => mapping(address => PairOverride)) internal _pairOverrides;
+    mapping(address => mapping(address => PairOverride)) internal $_pairOverrides;
 
     /// -----------------------------------------------------------------------
     /// constructor & initializer
@@ -113,18 +113,18 @@ contract UniV3OracleImpl is Owned, IOracle {
         uint24 defaultFee_,
         uint32 defaultPeriod_,
         uint32 defaultScaledOfferFactor_,
-        SetPairOverrideParams[] calldata poParams
+        SetPairOverrideParams[] calldata poParams_
     ) external {
         // only uniV3OracleFactory may call `initializer`
         if (msg.sender != uniV3OracleFactory) revert Unauthorized();
 
         owner = owner_;
-        defaultFee = defaultFee_;
-        defaultPeriod = defaultPeriod_;
-        defaultScaledOfferFactor = defaultScaledOfferFactor_;
+        $defaultFee = defaultFee_;
+        $defaultPeriod = defaultPeriod_;
+        $defaultScaledOfferFactor = defaultScaledOfferFactor_;
         emit OwnershipTransferred(address(0), owner_);
 
-        _setPairOverrides(poParams);
+        _setPairOverrides(poParams_);
     }
 
     /// -----------------------------------------------------------------------
@@ -141,26 +141,26 @@ contract UniV3OracleImpl is Owned, IOracle {
 
     /// set defaultFee
     function setDefaultFee(uint24 defaultFee_) external onlyOwner {
-        defaultFee = defaultFee_;
+        $defaultFee = defaultFee_;
         emit SetDefaultFee(defaultFee_);
     }
 
     /// set defaultPeriod
     function setDefaultPeriod(uint32 defaultPeriod_) external onlyOwner {
-        defaultPeriod = defaultPeriod_;
+        $defaultPeriod = defaultPeriod_;
         emit SetDefaultPeriod(defaultPeriod_);
     }
 
     /// set defaultScaledOfferFactor
     function setDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor_) external onlyOwner {
-        defaultScaledOfferFactor = defaultScaledOfferFactor_;
+        $defaultScaledOfferFactor = defaultScaledOfferFactor_;
         emit SetDefaultScaledOfferFactor(defaultScaledOfferFactor_);
     }
 
     /// set pair overrides
-    function setPairOverrides(SetPairOverrideParams[] calldata params) external onlyOwner {
-        _setPairOverrides(params);
-        emit SetPairOverride(params);
+    function setPairOverrides(SetPairOverrideParams[] calldata params_) external onlyOwner {
+        _setPairOverrides(params_);
+        emit SetPairOverride(params_);
     }
 
     /// -----------------------------------------------------------------------
@@ -169,21 +169,17 @@ contract UniV3OracleImpl is Owned, IOracle {
 
     // TODO: array?
     /// get pair override for a token pair
-    function getPairOverride(TokenPair calldata tp) external view returns (PairOverride memory) {
-        return _getPairOverride(_convertAndSortTokenPair(tp));
+    function getPairOverride(TokenPair calldata tp_) external view returns (PairOverride memory) {
+        return _getPairOverride(_convertAndSortTokenPair(tp_));
     }
 
     /// get quote amounts for a set of trades
-    function getQuoteAmounts(address quoteToken, BaseParams[] calldata bps)
-        external
-        view
-        returns (uint256[] memory quoteAmounts)
-    {
-        uint256 length = bps.length;
+    function getQuoteAmounts(QuoteParams[] calldata qps_) external view returns (uint256[] memory quoteAmounts) {
+        uint256 length = qps_.length;
         quoteAmounts = new uint256[](length);
         uint256 i;
         for (; i < length;) {
-            quoteAmounts[i] = _getQuoteAmount(quoteToken, bps[i]);
+            quoteAmounts[i] = _getQuoteAmount(qps_[i]);
             unchecked {
                 ++i;
             }
@@ -195,25 +191,26 @@ contract UniV3OracleImpl is Owned, IOracle {
     /// -----------------------------------------------------------------------
 
     /// get quote amount for a trade
-    function _getQuoteAmount(address quoteToken, BaseParams calldata bp) internal view returns (uint256) {
-        ConvertedTokenPair memory ctp = TokenPair({tokenA: bp.baseToken, tokenB: quoteToken})._convert(_convertToken);
+    function _getQuoteAmount(QuoteParams calldata qp_) internal view returns (uint256) {
+        ConvertedTokenPair memory ctp =
+            TokenPair({tokenA: qp_.baseToken, tokenB: qp_.quoteToken})._convert(_convertToken);
         SortedConvertedTokenPair memory sctp = ctp._sort();
         PairOverride memory po = _getPairOverride(sctp);
 
         if (po.scaledOfferFactor == 0) {
-            po.scaledOfferFactor = defaultScaledOfferFactor;
+            po.scaledOfferFactor = $defaultScaledOfferFactor;
         }
 
         // skip oracle if converted tokens are equal
         if (sctp.cToken0 == sctp.cToken1) {
-            return bp.baseAmount * po.scaledOfferFactor / PERCENTAGE_SCALE;
+            return qp_.baseAmount * po.scaledOfferFactor / PERCENTAGE_SCALE;
         }
 
         if (po.fee == 0) {
-            po.fee = defaultFee;
+            po.fee = $defaultFee;
         }
         if (po.period == 0) {
-            po.period = defaultPeriod;
+            po.period = $defaultPeriod;
         }
 
         address pool = uniswapV3Factory.getPool(sctp.cToken0, sctp.cToken1, po.fee);
@@ -226,7 +223,7 @@ contract UniV3OracleImpl is Owned, IOracle {
 
         uint256 unscaledAmountToBeneficiary = OracleLibrary.getQuoteAtTick({
             tick: arithmeticMeanTick,
-            baseAmount: bp.baseAmount,
+            baseAmount: qp_.baseAmount,
             baseToken: ctp.cTokenA,
             quoteToken: ctp.cTokenB
         });
@@ -235,16 +232,16 @@ contract UniV3OracleImpl is Owned, IOracle {
     }
 
     /// get pair overrides
-    function _getPairOverride(SortedConvertedTokenPair memory sctp) internal view returns (PairOverride memory) {
-        return _pairOverrides[sctp.cToken0][sctp.cToken1];
+    function _getPairOverride(SortedConvertedTokenPair memory sctp_) internal view returns (PairOverride memory) {
+        return $_pairOverrides[sctp_.cToken0][sctp_.cToken1];
     }
 
     /// set pair overrides
-    function _setPairOverrides(SetPairOverrideParams[] calldata params) internal {
-        uint256 length = params.length;
+    function _setPairOverrides(SetPairOverrideParams[] calldata params_) internal {
+        uint256 length = params_.length;
         uint256 i;
         for (; i < length;) {
-            _setPairOverride(params[i]);
+            _setPairOverride(params_[i]);
             unchecked {
                 ++i;
             }
@@ -252,18 +249,18 @@ contract UniV3OracleImpl is Owned, IOracle {
     }
 
     /// set pair override
-    function _setPairOverride(SetPairOverrideParams calldata params) internal {
-        SortedConvertedTokenPair memory sctp = _convertAndSortTokenPair(params.tp);
-        _pairOverrides[sctp.cToken0][sctp.cToken1] = params.pairOverride;
+    function _setPairOverride(SetPairOverrideParams calldata params_) internal {
+        SortedConvertedTokenPair memory sctp = _convertAndSortTokenPair(params_.tp);
+        $_pairOverrides[sctp.cToken0][sctp.cToken1] = params_.pairOverride;
     }
 
     /// convert & sort tokens into canonical order
-    function _convertAndSortTokenPair(TokenPair calldata tp) internal view returns (SortedConvertedTokenPair memory) {
-        return tp._convert(_convertToken)._sort();
+    function _convertAndSortTokenPair(TokenPair calldata tp_) internal view returns (SortedConvertedTokenPair memory) {
+        return tp_._convert(_convertToken)._sort();
     }
 
     /// convert eth (0x0) to weth
-    function _convertToken(address token) internal view returns (address) {
-        return token._isETH() ? weth9 : token;
+    function _convertToken(address token_) internal view returns (address) {
+        return token_._isETH() ? weth9 : token_;
     }
 }

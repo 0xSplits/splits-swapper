@@ -34,6 +34,7 @@ contract Swapper is Owned {
 
     error Paused();
     error Invalid_AmountsToBeneficiary();
+    error Invalid_QuoteToken();
     error InsufficientFunds_InContract();
     error InsufficientFunds_FromTrader();
 
@@ -62,7 +63,7 @@ contract Swapper is Owned {
     event PayBack(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
-        IOracle.BaseParams[] baseParams,
+        IOracle.QuoteParams[] quoteParams,
         address tokenToBeneficiary,
         uint256[] amountsToBeneficiary,
         uint256 excessToBeneficiary
@@ -85,28 +86,28 @@ contract Swapper is Owned {
     /// slot 1 - 0 bytes free
 
     /// address to receive post-swap tokens
-    address public beneficiary;
+    address public $beneficiary;
     /// 20 bytes
 
     /// used to track eth payback in flash
-    uint96 internal _payback;
+    uint96 internal $_payback;
     /// 12 bytes
 
     /// slot 2 - 11 bytes free
 
     /// token type to send beneficiary
     /// @dev 0x0 used for ETH
-    address public tokenToBeneficiary;
+    address public $tokenToBeneficiary;
     /// 20 bytes
 
     /// whether non-owner functions are paused
-    bool public paused;
+    bool public $paused;
     /// 1 byte
 
     /// slot 3 - 12 bytes free
 
     /// price oracle for flash
-    IOracle public oracle;
+    IOracle public $oracle;
     /// 20 bytes
 
     /// -----------------------------------------------------------------------
@@ -116,10 +117,10 @@ contract Swapper is Owned {
     constructor(address owner_, bool paused_, address beneficiary_, address tokenToBeneficiary_, IOracle oracle_)
         Owned(owner_)
     {
-        beneficiary = beneficiary_;
-        tokenToBeneficiary = tokenToBeneficiary_;
-        paused = paused_;
-        oracle = oracle_;
+        $beneficiary = beneficiary_;
+        $tokenToBeneficiary = tokenToBeneficiary_;
+        $paused = paused_;
+        $oracle = oracle_;
 
         // event in factory
     }
@@ -138,25 +139,25 @@ contract Swapper is Owned {
 
     /// set beneficiary
     function setBeneficiary(address beneficiary_) external onlyOwner {
-        beneficiary = beneficiary_;
+        $beneficiary = beneficiary_;
         emit SetBeneficiary(beneficiary_);
     }
 
     /// set tokenToBeneficiary
     function setTokenToBeneficiary(address tokenToBeneficiary_) external onlyOwner {
-        tokenToBeneficiary = tokenToBeneficiary_;
+        $tokenToBeneficiary = tokenToBeneficiary_;
         emit SetTokenToBeneficiary(tokenToBeneficiary_);
     }
 
     /// set paused
     function setPaused(bool paused_) external onlyOwner {
-        paused = paused_;
+        $paused = paused_;
         emit SetPaused(paused_);
     }
 
     /// set oracle
     function setOracle(IOracle oracle_) external onlyOwner {
-        oracle = oracle_;
+        $oracle = oracle_;
         emit SetOracle(oracle_);
     }
 
@@ -165,20 +166,20 @@ contract Swapper is Owned {
     // (or have to xfr funds first to integration contract? which is maybe fine..)
 
     /// allow owner to execute arbitrary calls from swapper
-    function execCalls(Call[] calldata calls)
+    function execCalls(Call[] calldata calls_)
         external
         payable
         onlyOwner
         returns (uint256 blockNumber, bytes[] memory returnData)
     {
         blockNumber = block.number;
-        uint256 length = calls.length;
+        uint256 length = calls_.length;
         returnData = new bytes[](length);
 
         bool success;
         uint256 i;
         for (; i < length;) {
-            Call calldata calli = calls[i];
+            Call calldata calli = calls_[i];
             (success, returnData[i]) = calli.target.call{value: calli.value}(calli.callData);
             require(success, string(returnData[i]));
 
@@ -187,7 +188,7 @@ contract Swapper is Owned {
             }
         }
 
-        emit ExecCalls(calls);
+        emit ExecCalls(calls_);
     }
 
     /// -----------------------------------------------------------------------
@@ -204,7 +205,7 @@ contract Swapper is Owned {
     /// @dev if used outside swapperFlashCallback, msg.sender may lose funds
     /// accumulates until next flash call
     function payback() external payable {
-        _payback += msg.value.toUint96();
+        $_payback += msg.value.toUint96();
 
         emit PayBack(msg.sender, msg.value);
     }
@@ -212,14 +213,14 @@ contract Swapper is Owned {
     // TODO: refactor into smaller fns ?
 
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(IOracle.BaseParams[] calldata bps, bytes calldata callbackData) external payable {
-        if (paused) revert Paused();
+    function flash(IOracle.QuoteParams[] calldata qps_, bytes calldata callbackData_) external payable {
+        if ($paused) revert Paused();
 
-        /// xfr bps to msg.sender
+        /// xfr qps_ to msg.sender
 
-        address _tokenToBeneficiary = tokenToBeneficiary;
-        uint256[] memory amountsToBeneficiary = oracle.getQuoteAmounts(_tokenToBeneficiary, bps);
-        uint256 length = bps.length;
+        address tokenToBeneficiary = $tokenToBeneficiary;
+        uint256[] memory amountsToBeneficiary = $oracle.getQuoteAmounts(qps_);
+        uint256 length = qps_.length;
         if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
         uint256 amountToBeneficiary;
         {
@@ -227,9 +228,11 @@ contract Swapper is Owned {
             address tokenToTrader;
             uint256 i;
             for (; i < length;) {
-                IOracle.BaseParams calldata bp = bps[i];
-                tokenToTrader = bp.baseToken;
-                amountToTrader = bp.baseAmount;
+                IOracle.QuoteParams calldata qp = qps_[i];
+
+                if (tokenToBeneficiary != qp.quoteToken) revert Invalid_QuoteToken();
+                tokenToTrader = qp.baseToken;
+                amountToTrader = qp.baseAmount;
 
                 if (amountToTrader > tokenToTrader._balanceOf(address(this))) {
                     revert InsufficientFunds_InContract();
@@ -246,37 +249,37 @@ contract Swapper is Owned {
 
         /// msg.sender callback
 
-        // TODO: should we be sending more info about which tokens were xfr'd? bps? or.. caller can encode themselves in data if they want ig
+        // TODO: should we be sending more info about which tokens were xfr'd? qps_? or.. caller can encode themselves in data if they want ig
         ISwapperFlashCallback(msg.sender).swapperFlashCallback({
-            tokenToBeneficiary: _tokenToBeneficiary,
+            tokenToBeneficiary: tokenToBeneficiary,
             amountToBeneficiary: amountToBeneficiary,
-            data: callbackData
+            data: callbackData_
         });
 
         /// xfr amountsToBeneficiary [from msg.sender] + excess [already in contract] to beneficiary
 
-        address _beneficiary = beneficiary;
+        address beneficiary = $beneficiary;
         uint256 excessToBeneficiary;
-        if (_tokenToBeneficiary._isETH()) {
-            if (_payback < amountToBeneficiary) {
+        if (tokenToBeneficiary._isETH()) {
+            if ($_payback < amountToBeneficiary) {
                 revert InsufficientFunds_FromTrader();
             }
-            _payback = 0;
+            $_payback = 0;
 
             // send eth to beneficiary
             uint256 ethBalance = address(this).balance;
             excessToBeneficiary = ethBalance - amountToBeneficiary;
-            _beneficiary.safeTransferETH(ethBalance);
+            beneficiary.safeTransferETH(ethBalance);
         } else {
-            _tokenToBeneficiary.safeTransferFrom(msg.sender, _beneficiary, amountToBeneficiary);
+            tokenToBeneficiary.safeTransferFrom(msg.sender, beneficiary, amountToBeneficiary);
 
             // flush excess tokenToBeneficiary to beneficiary
-            excessToBeneficiary = ERC20(_tokenToBeneficiary).balanceOf(address(this));
+            excessToBeneficiary = ERC20(tokenToBeneficiary).balanceOf(address(this));
             if (excessToBeneficiary > 0) {
-                _tokenToBeneficiary.safeTransfer(_beneficiary, excessToBeneficiary);
+                tokenToBeneficiary.safeTransfer(beneficiary, excessToBeneficiary);
             }
         }
 
-        emit Flash(msg.sender, bps, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
+        emit Flash(msg.sender, qps_, tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
     }
 }

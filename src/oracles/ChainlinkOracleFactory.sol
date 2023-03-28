@@ -45,11 +45,11 @@ contract ChainlinkOracleFactory is IOracleFactory {
     /// constructor
     /// -----------------------------------------------------------------------
 
-    constructor(FeedRegistryInterface clFeedRegistry, address weth9, address clETH) {
+    constructor(FeedRegistryInterface clFeedRegistry_, address weth9_, address clETH_) {
         chainlinkOracleImpl = new ChainlinkOracleImpl({
-            clFeedRegistry_: clFeedRegistry,
-            weth9_: weth9,
-            clETH_: clETH
+            clFeedRegistry_: clFeedRegistry_,
+            weth9_: weth9_,
+            clETH_: clETH_
         });
     }
 
@@ -62,32 +62,32 @@ contract ChainlinkOracleFactory is IOracleFactory {
     /// -----------------------------------------------------------------------
 
     function createOracle(
-        address owner,
-        uint32 defaultStaleAfter,
-        uint32 defaultScaledOfferFactor,
-        ChainlinkOracleImpl.SetTokenOverrideParams[] memory toParams,
-        ChainlinkOracleImpl.SetPairOverrideParams[] memory poParams
+        address owner_,
+        uint32 defaultStaleAfter_,
+        uint32 defaultScaledOfferFactor_,
+        ChainlinkOracleImpl.SetTokenOverrideParams[] memory toParams_,
+        ChainlinkOracleImpl.SetPairOverrideParams[] memory poParams_
     ) external returns (ChainlinkOracleImpl oracle) {
         oracle = ChainlinkOracleImpl(address(chainlinkOracleImpl).clone());
         oracle.initializer({
-            owner_: owner,
-            defaultStaleAfter_: defaultStaleAfter,
-            defaultScaledOfferFactor_: defaultScaledOfferFactor,
-            toParams: toParams,
-            poParams: poParams
+            owner_: owner_,
+            defaultStaleAfter_: defaultStaleAfter_,
+            defaultScaledOfferFactor_: defaultScaledOfferFactor_,
+            toParams_: toParams_,
+            poParams_: poParams_
         });
 
         emit CreateOracle({
             oracle: oracle,
-            owner: owner,
-            defaultStaleAfter: defaultStaleAfter,
-            defaultScaledOfferFactor: defaultScaledOfferFactor,
-            toParams: toParams,
-            poParams: poParams
+            owner: owner_,
+            defaultStaleAfter: defaultStaleAfter_,
+            defaultScaledOfferFactor: defaultScaledOfferFactor_,
+            toParams: toParams_,
+            poParams: poParams_
         });
     }
 
-    function createOracle(bytes calldata init) external returns (IOracle) {
+    function createOracle(bytes calldata init_) external returns (IOracle) {
         (
             address owner,
             uint32 defaultStaleAfter,
@@ -95,7 +95,7 @@ contract ChainlinkOracleFactory is IOracleFactory {
             ChainlinkOracleImpl.SetTokenOverrideParams[] memory toParams,
             ChainlinkOracleImpl.SetPairOverrideParams[] memory poParams
         ) = abi.decode(
-            init,
+            init_,
             (
                 address,
                 uint32,
@@ -110,8 +110,8 @@ contract ChainlinkOracleFactory is IOracleFactory {
             owner_: owner,
             defaultStaleAfter_: defaultStaleAfter,
             defaultScaledOfferFactor_: defaultScaledOfferFactor,
-            toParams: toParams,
-            poParams: poParams
+            toParams_: toParams,
+            poParams_: poParams
         });
 
         emit CreateOracle({
