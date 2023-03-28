@@ -293,9 +293,8 @@ contract ChainlinkOracleImpl is Owned, IOracle {
         return (token_._isETH() || token_ == weth9) ? clETH : $tokenOverrides[token_];
     }
 
-    // TODO figure out array pointers here
-    /// TODO
-    function _getPathFromQuoteParams(QuoteParams calldata quoteParams_, ConvertedQuotePair memory cqp)
+    /// returns the AggregatorV3Interface[] path from quoteParams_
+    function _getPathFromQuoteParams(QuoteParams calldata quoteParams_, ConvertedQuotePair memory cqp_)
         internal
         view
         returns (AggregatorV3Interface[] memory path)
@@ -304,7 +303,7 @@ contract ChainlinkOracleImpl is Owned, IOracle {
         uint256 itLength = intermediaryTokens.length;
         path = new AggregatorV3Interface[](itLength+1);
 
-        address base = cqp.cBase;
+        address base = cqp_.cBase;
         address quote;
         for (uint256 i; i < itLength;) {
             quote = intermediaryTokens[i];
@@ -315,7 +314,7 @@ contract ChainlinkOracleImpl is Owned, IOracle {
                 ++i;
             }
         }
-        quote = cqp.cQuote;
+        quote = cqp_.cQuote;
         path[itLength] = clFeedRegistry.getFeed({base: base, quote: quote});
     }
 
@@ -330,6 +329,7 @@ contract ChainlinkOracleImpl is Owned, IOracle {
         casted.reverse();
     }
 
+    /// scale unscaledAmountToBeneficiary_ based on path_ price feeds
     function _scaleAmountByFeeds(
         uint256 unscaledAmountToBeneficiary_,
         AggregatorV3Interface[] memory path_,
@@ -368,6 +368,7 @@ contract ChainlinkOracleImpl is Owned, IOracle {
         return unscaledAmountToBeneficiary_;
     }
 
+    /// adjust unscaledAmountToBeneficiary_ based on decimals of base & quote
     function _adjustDecimals(uint256 unscaledAmountToBeneficiary_, QuoteParams calldata quoteParams_)
         internal
         view
