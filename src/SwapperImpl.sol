@@ -10,7 +10,7 @@ import {IOracle} from "splits-oracle/interfaces/IOracleFactory.sol";
 import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
 
-/// @title Swapper
+/// @title Swapper Implementation
 /// @author 0xSplits
 /// @notice A contract to trustlessly & automatically convert multi-token
 /// revenue into a single token & push to a beneficiary.
@@ -19,7 +19,7 @@ import {TokenUtils} from "src/utils/TokenUtils.sol";
 /// oracle with sensible defaults & overrides for desired behavior. Otherwise
 /// may result in catastrophic loss of funds.
 /// This contract uses token = address(0) to refer to ETH.
-contract Swapper is Owned {
+contract SwapperImpl is Owned {
     /// -----------------------------------------------------------------------
     /// libraries
     /// -----------------------------------------------------------------------
@@ -32,6 +32,7 @@ contract Swapper is Owned {
     /// errors
     /// -----------------------------------------------------------------------
 
+    error Unauthorized();
     error Paused();
     error Invalid_AmountsToBeneficiary();
     error Invalid_QuoteToken();
@@ -42,10 +43,18 @@ contract Swapper is Owned {
     /// structs
     /// -----------------------------------------------------------------------
 
+    struct InitParams {
+        address owner;
+        bool paused;
+        address beneficiary;
+        address tokenToBeneficiary;
+        IOracle oracle;
+    }
+
     struct Call {
         address target;
         uint256 value;
-        bytes callData;
+        bytes data;
     }
 
     /// -----------------------------------------------------------------------
@@ -72,6 +81,12 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
     /// storage
     /// -----------------------------------------------------------------------
+
+    /// -----------------------------------------------------------------------
+    /// storage - constants & immutables
+    /// -----------------------------------------------------------------------
+
+    address public immutable swapperFactory;
 
     /// -----------------------------------------------------------------------
     /// storage - mutables
@@ -111,18 +126,23 @@ contract Swapper is Owned {
     /// 20 bytes
 
     /// -----------------------------------------------------------------------
-    /// constructor
+    /// constructor & initializer
     /// -----------------------------------------------------------------------
 
-    constructor(address owner_, bool paused_, address beneficiary_, address tokenToBeneficiary_, IOracle oracle_)
-        Owned(owner_)
-    {
-        $beneficiary = beneficiary_;
-        $tokenToBeneficiary = tokenToBeneficiary_;
-        $paused = paused_;
-        $oracle = oracle_;
+    constructor() Owned(address(0)) {
+        swapperFactory = msg.sender;
+    }
 
-        // event in factory
+    function initializer(InitParams calldata params_) external {
+        // only swapperFactory may call `initializer`
+        if (msg.sender != swapperFactory) revert Unauthorized();
+
+        owner = params_.owner;
+        $beneficiary = params_.beneficiary;
+        $tokenToBeneficiary = params_.tokenToBeneficiary;
+        $paused = params_.paused;
+        $oracle = params_.oracle;
+        emit OwnershipTransferred(address(0), params_.owner);
     }
 
     /// -----------------------------------------------------------------------
@@ -179,7 +199,7 @@ contract Swapper is Owned {
         bool success;
         for (uint256 i; i < length;) {
             Call calldata calli = calls_[i];
-            (success, returnData[i]) = calli.target.call{value: calli.value}(calli.callData);
+            (success, returnData[i]) = calli.target.call{value: calli.value}(calli.data);
             require(success, string(returnData[i]));
 
             unchecked {
@@ -195,6 +215,7 @@ contract Swapper is Owned {
     /// -----------------------------------------------------------------------
 
     /// emit event when receiving ETH
+    // TODO: add to clone bytecode & comment out fn
     /// @dev implemented w/i clone bytecode
     receive() external payable {
         emit ReceiveETH(msg.value);
