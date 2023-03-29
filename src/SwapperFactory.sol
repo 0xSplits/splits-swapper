@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import {LibClone} from "solady/utils/LibClone.sol";
+import {LibClone} from "src/utils/LibClone.sol";
 import {IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
 
 import {SwapperImpl} from "src/SwapperImpl.sol";
