@@ -215,11 +215,10 @@ contract SwapperImpl is Owned {
     /// -----------------------------------------------------------------------
 
     /// emit event when receiving ETH
-    // TODO: add to clone bytecode & comment out fn
     /// @dev implemented w/i clone bytecode
-    receive() external payable {
-        emit ReceiveETH(msg.value);
-    }
+    /* receive() external payable { */
+    /*     emit ReceiveETH(msg.value); */
+    /* } */
 
     /// allows flash to track eth payback to beneficiary
     /// @dev if used outside swapperFlashCallback, msg.sender may lose funds
