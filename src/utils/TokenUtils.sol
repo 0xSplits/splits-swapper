@@ -13,7 +13,7 @@ library TokenUtils {
         return (token == ETH_ADDRESS);
     }
 
-    function _getDecimals(address token) internal view returns (uint8) {
+    function _decimals(address token) internal view returns (uint8) {
         return _isETH(token) ? 18 : ERC20(token).decimals();
     }
 
