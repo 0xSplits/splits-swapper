@@ -69,7 +69,7 @@ contract SwapperImpl is Owned {
     event ExecCalls(Call[] calls);
 
     event ReceiveETH(uint256 amount);
-    event PayBack(address indexed payer, uint256 amount);
+    event Payback(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
         IOracle.QuoteParams[] quoteParams,
@@ -225,8 +225,7 @@ contract SwapperImpl is Owned {
     /// accumulates until next flash call
     function payback() external payable {
         $_payback += msg.value.toUint96();
-
-        emit PayBack(msg.sender, msg.value);
+        emit Payback(msg.sender, msg.value);
     }
 
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
