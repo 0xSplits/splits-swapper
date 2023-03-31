@@ -3,3 +3,5 @@ forge-std/=lib/forge-std/src/
 solady/=lib/solady/src/
 solmate/=lib/solmate/src/
 splits-oracle/=lib/splits-oracle/src/
+v3-periphery/=lib/v3-periphery/contracts/
+@uniswap/v3-periphery/=lib/v3-periphery/
