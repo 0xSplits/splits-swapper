@@ -69,7 +69,7 @@ contract UniV3Swap is ISwapperFlashCallback {
         }
 
         uint256 ethBalance = address(this).balance;
-        if (ethBalance != 0) {
+        if (!tokenToBeneficiary_._isETH() && ethBalance != 0) {
             weth9.deposit{value: ethBalance}();
         }
 
@@ -108,7 +108,7 @@ contract UniV3Swap is ISwapperFlashCallback {
             tokenToBeneficiary_.safeApprove(msg.sender, amountToBeneficiary_);
 
             // xfr excess out
-            uint256 excessBalance = ERC20(tokenToBeneficiary_).balanceOf(address(this));
+            uint256 excessBalance = ERC20(tokenToBeneficiary_).balanceOf(address(this)) - amountToBeneficiary_;
             if (excessBalance > 0) {
                 tokenToBeneficiary_.safeTransfer(excessRecipient, excessBalance);
             }
