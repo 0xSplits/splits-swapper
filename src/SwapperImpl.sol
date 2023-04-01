@@ -2,13 +2,13 @@
 pragma solidity ^0.8.17;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
-import {Owned} from "solmate/auth/Owned.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracleFactory.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {IOracle} from "splits-oracle/interfaces/IOracleFactory.sol";
 
 import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
+import {Wallet} from "src/utils/Wallet.sol";
 
 /// @title Swapper Implementation
 /// @author 0xSplits
@@ -19,7 +19,7 @@ import {TokenUtils} from "src/utils/TokenUtils.sol";
 /// oracle with sensible defaults & overrides for desired behavior. Otherwise
 /// may result in catastrophic loss of funds.
 /// This contract uses token = address(0) to refer to ETH.
-contract SwapperImpl is Owned {
+contract SwapperImpl is Wallet {
     /// -----------------------------------------------------------------------
     /// libraries
     /// -----------------------------------------------------------------------
@@ -51,12 +51,6 @@ contract SwapperImpl is Owned {
         IOracle oracle;
     }
 
-    struct Call {
-        address target;
-        uint256 value;
-        bytes data;
-    }
-
     /// -----------------------------------------------------------------------
     /// events
     /// -----------------------------------------------------------------------
@@ -65,8 +59,6 @@ contract SwapperImpl is Owned {
     event SetTokenToBeneficiary(address tokenToBeneficiaryd);
     event SetPaused(bool paused);
     event SetOracle(IOracle oracle);
-
-    event ExecCalls(Call[] calls);
 
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
@@ -129,7 +121,7 @@ contract SwapperImpl is Owned {
     /// constructor & initializer
     /// -----------------------------------------------------------------------
 
-    constructor() Owned(address(0)) {
+    constructor() Wallet(address(0)) {
         swapperFactory = msg.sender;
     }
 
@@ -137,12 +129,11 @@ contract SwapperImpl is Owned {
         // only swapperFactory may call `initializer`
         if (msg.sender != swapperFactory) revert Unauthorized();
 
-        owner = params_.owner;
+        Wallet.initializer(params_.owner);
         $beneficiary = params_.beneficiary;
         $tokenToBeneficiary = params_.tokenToBeneficiary;
         $paused = params_.paused;
         $oracle = params_.oracle;
-        emit OwnershipTransferred(address(0), params_.owner);
     }
 
     /// -----------------------------------------------------------------------
@@ -181,35 +172,6 @@ contract SwapperImpl is Owned {
         emit SetOracle(oracle_);
     }
 
-    // TODO: can we approve, swap, & forward in a single call?
-    // don't know the output amount of the swap.. may need delegatecall to handle properly
-    // (or have to xfr funds first to integration contract? which is maybe fine..)
-
-    /// allow owner to execute arbitrary calls from swapper
-    function execCalls(Call[] calldata calls_)
-        external
-        payable
-        onlyOwner
-        returns (uint256 blockNumber, bytes[] memory returnData)
-    {
-        blockNumber = block.number;
-        uint256 length = calls_.length;
-        returnData = new bytes[](length);
-
-        bool success;
-        for (uint256 i; i < length;) {
-            Call calldata calli = calls_[i];
-            (success, returnData[i]) = calli.target.call{value: calli.value}(calli.data);
-            require(success, string(returnData[i]));
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        emit ExecCalls(calls_);
-    }
-
     /// -----------------------------------------------------------------------
     /// functions - public & external - permissionless
     /// -----------------------------------------------------------------------
@@ -246,6 +208,10 @@ contract SwapperImpl is Owned {
 
         emit Flash(msg.sender, quoteParams_, tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
     }
+
+    /// -----------------------------------------------------------------------
+    /// functions - private & internal
+    /// -----------------------------------------------------------------------
 
     function _transferToTrader(address tokenToBeneficiary_, IOracle.QuoteParams[] calldata quoteParams_)
         internal
