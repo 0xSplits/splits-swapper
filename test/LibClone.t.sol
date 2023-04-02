@@ -37,7 +37,7 @@ contract LibCloneTest is Test {
         address clone = impl.clone();
 
         vm.expectCall(impl, data);
-        (bool success, ) = clone.call(data);
+        (bool success,) = clone.call(data);
         assertTrue(success);
     }
 }

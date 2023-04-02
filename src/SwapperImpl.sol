@@ -7,8 +7,9 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
+import {PausableImpl} from "src/utils/PausableImpl.sol";
 import {TokenUtils} from "src/utils/TokenUtils.sol";
-import {Wallet} from "src/utils/Wallet.sol";
+import {WalletImpl} from "src/utils/WalletImpl.sol";
 
 /// @title Swapper Implementation
 /// @author 0xSplits
@@ -19,7 +20,7 @@ import {Wallet} from "src/utils/Wallet.sol";
 /// oracle with sensible defaults & overrides for desired behavior. Otherwise
 /// may result in catastrophic loss of funds.
 /// This contract uses token = address(0) to refer to ETH.
-contract SwapperImpl is Wallet {
+contract SwapperImpl is WalletImpl, PausableImpl {
     /// -----------------------------------------------------------------------
     /// libraries
     /// -----------------------------------------------------------------------
@@ -32,8 +33,6 @@ contract SwapperImpl is Wallet {
     /// errors
     /// -----------------------------------------------------------------------
 
-    error Unauthorized();
-    error Paused();
     error Invalid_AmountsToBeneficiary();
     error Invalid_QuoteToken();
     error InsufficientFunds_InContract();
@@ -57,7 +56,6 @@ contract SwapperImpl is Wallet {
 
     event SetBeneficiary(address beneficiary);
     event SetTokenToBeneficiary(address tokenToBeneficiaryd);
-    event SetPaused(bool paused);
     event SetOracle(IOracle oracle);
 
     event ReceiveETH(uint256 amount);
@@ -84,11 +82,15 @@ contract SwapperImpl is Wallet {
     /// storage - mutables
     /// -----------------------------------------------------------------------
 
-    /// slot 0 - 12 bytes free
+    /// slot 0 - 11 bytes free
 
     /// Owned storage
     /// address public owner;
     /// 20 bytes
+
+    /// whether non-owner functions are paused
+    /// bool public $paused;
+    /// 1 byte
 
     /// slot 1 - 0 bytes free
 
@@ -100,16 +102,12 @@ contract SwapperImpl is Wallet {
     uint96 internal $_payback;
     /// 12 bytes
 
-    /// slot 2 - 11 bytes free
+    /// slot 2 - 12 bytes free
 
     /// token type to send beneficiary
     /// @dev 0x0 used for ETH
     address public $tokenToBeneficiary;
     /// 20 bytes
-
-    /// whether non-owner functions are paused
-    bool public $paused;
-    /// 1 byte
 
     /// slot 3 - 12 bytes free
 
@@ -121,7 +119,7 @@ contract SwapperImpl is Wallet {
     /// constructor & initializer
     /// -----------------------------------------------------------------------
 
-    constructor() Wallet(address(0)) {
+    constructor() {
         swapperFactory = msg.sender;
     }
 
@@ -129,10 +127,12 @@ contract SwapperImpl is Wallet {
         // only swapperFactory may call `initializer`
         if (msg.sender != swapperFactory) revert Unauthorized();
 
-        Wallet.initializer(params_.owner);
+        // TODO: check if compiler handles packing properly
+        // don't need to init wallet separately
+        __initPausable({owner_: params_.owner, paused_: params_.paused});
+
         $beneficiary = params_.beneficiary;
         $tokenToBeneficiary = params_.tokenToBeneficiary;
-        $paused = params_.paused;
         $oracle = params_.oracle;
     }
 
@@ -160,12 +160,6 @@ contract SwapperImpl is Wallet {
         emit SetTokenToBeneficiary(tokenToBeneficiary_);
     }
 
-    /// set paused
-    function setPaused(bool paused_) external onlyOwner {
-        $paused = paused_;
-        emit SetPaused(paused_);
-    }
-
     /// set oracle
     function setOracle(IOracle oracle_) external onlyOwner {
         $oracle = oracle_;
@@ -191,9 +185,11 @@ contract SwapperImpl is Wallet {
     }
 
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(IOracle.QuoteParams[] calldata quoteParams_, bytes calldata callbackData_) external payable {
-        if ($paused) revert Paused();
-
+    function flash(IOracle.QuoteParams[] calldata quoteParams_, bytes calldata callbackData_)
+        external
+        payable
+        pausable
+    {
         address tokenToBeneficiary = $tokenToBeneficiary;
         (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary) =
             _transferToTrader(tokenToBeneficiary, quoteParams_);

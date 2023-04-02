@@ -27,21 +27,14 @@ contract SwapperFactory {
     /// structs
     /// -----------------------------------------------------------------------
 
-    struct InitOracleAndSwapperParams {
-        InitOracleParams initOracle;
-        InitSwapperWithoutOracleParams initSwapper;
+    struct CreateOracleAndSwapperParams {
+        CreateOracleParams createOracle;
+        SwapperImpl.InitParams initSwapper;
     }
 
-    struct InitOracleParams {
+    struct CreateOracleParams {
         IOracleFactory factory;
         bytes data;
-    }
-
-    struct InitSwapperWithoutOracleParams {
-        address owner;
-        bool paused;
-        address beneficiary;
-        address tokenToBeneficiary;
     }
 
     /// -----------------------------------------------------------------------
@@ -81,16 +74,12 @@ contract SwapperFactory {
         return _createSwapper(params_);
     }
 
-    function createOracleAndSwapper(InitOracleAndSwapperParams calldata params_) external returns (SwapperImpl) {
-        IOracle oracle = params_.initOracle.factory.createOracle(params_.initOracle.data);
+    /// @dev params_.initSwapper.oracle is overridden by newly created oracle
+    function createOracleAndSwapper(CreateOracleAndSwapperParams calldata params_) external returns (SwapperImpl) {
+        IOracle oracle = params_.createOracle.factory.createOracle(params_.createOracle.data);
 
-        SwapperImpl.InitParams memory initSwapper = SwapperImpl.InitParams({
-            owner: params_.initSwapper.owner,
-            paused: params_.initSwapper.paused,
-            beneficiary: params_.initSwapper.beneficiary,
-            tokenToBeneficiary: params_.initSwapper.tokenToBeneficiary,
-            oracle: oracle
-        });
+        SwapperImpl.InitParams memory initSwapper = params_.initSwapper;
+        initSwapper.oracle = oracle;
         return _createSwapper(initSwapper);
     }
 
