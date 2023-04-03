@@ -103,45 +103,16 @@ contract AutoSwapImpl is Clone, WalletImpl, PausableImpl {
     /*     emit ReceiveETH(msg.value); */
     /* } */
 
-    /// distribute tokens through underlyingSplit
-    function sendFundsToSwappers(address[] calldata tokens_, SplitParams calldata underlyingSplitParams_)
-        external
-        pausable
-    {
+    /// send tokens to underlyingSplit
+    function sendFundsToUnderlying(address[] calldata tokens_) external pausable {
         uint256 length = tokens_.length;
         for (uint256 i; i < length;) {
             address token = tokens_[i];
-            _distributeSplit(token, underlyingSplitParams_);
+            token.safeTransfer(underlyingSplit(), token._balanceOf(address(this)));
 
             unchecked {
                 ++i;
             }
-        }
-    }
-
-    /// -----------------------------------------------------------------------
-    /// functions - private & internal
-    /// -----------------------------------------------------------------------
-
-    /// distribute token through underlyingSplit
-    function _distributeSplit(address token_, SplitParams calldata underlyingSplitParams_) internal {
-        if (token_._isETH()) {
-            splitMain.distributeETH({
-                split: underlyingSplit(),
-                accounts: underlyingSplitParams_.accounts,
-                percentAllocations: underlyingSplitParams_.percentAllocations,
-                distributorFee: underlyingSplitParams_.distributorFee,
-                distributorAddress: msg.sender
-            });
-        } else {
-            splitMain.distributeERC20({
-                split: underlyingSplit(),
-                token: token_,
-                accounts: underlyingSplitParams_.accounts,
-                percentAllocations: underlyingSplitParams_.percentAllocations,
-                distributorFee: underlyingSplitParams_.distributorFee,
-                distributorAddress: msg.sender
-            });
         }
     }
 }
