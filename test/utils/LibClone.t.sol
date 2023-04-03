@@ -10,7 +10,7 @@ contract LibCloneTest is Test {
 
     function setUp() public {}
 
-    function test_clone(address impl) public {
+    function testFuzz_clone(address impl) public {
         address clone = impl.clone();
         assertEq(
             clone.code,
@@ -25,12 +25,12 @@ contract LibCloneTest is Test {
         );
     }
 
-    function test_cloneCanReceiveETH(address impl, uint96 ethValue) public {
+    function testFuzz_cloneCanReceiveETH(address impl, uint96 ethValue) public {
         address clone = impl.clone();
         payable(clone).transfer(ethValue);
     }
 
-    function test_cloneCanDelegateCall(address impl, bytes calldata data) public {
+    function testFuzz_cloneCanDelegateCall(address impl, bytes calldata data) public {
         vm.assume(data.length > 0);
         assumePayable(impl);
 
