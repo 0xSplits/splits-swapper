@@ -4,7 +4,7 @@ pragma solidity ^0.8.17;
 import {Clone} from "solady/utils/Clone.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracleFactory.sol";
-import {ISplitMain} from "./interfaces/ISplitMain.sol";
+import {ISplitMain} from "./interfaces/external/ISplitMain.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 

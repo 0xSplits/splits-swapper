@@ -2,7 +2,7 @@
 pragma solidity ^0.8.17;
 
 import {IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
-import {ISplitMain} from "./interfaces/ISplitMain.sol";
+import {ISplitMain} from "./interfaces/external/ISplitMain.sol";
 import {LibClone} from "solady/utils/LibClone.sol";
 
 import {AutoSwapImpl} from "src/AutoSwapImpl.sol";
@@ -106,6 +106,7 @@ contract AutoSwapFactory {
     /// -----------------------------------------------------------------------
 
     // TODO: should this complexity be inside AutoSwapImpl.initializer? would mean underlyingSplit can't be immutable
+    // would give auto swap view into the swappers underneath? think it would turn into a nightmare to manage tho
 
     function _createAutoSwap(CreateAutoSwapParams memory params_) internal returns (AutoSwapImpl autoSwap) {
         // create swappers
