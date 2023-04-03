@@ -8,18 +8,19 @@ import {ISplitMain} from "./interfaces/external/ISplitMain.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-import {PausableImpl} from "src/utils/PausableImpl.sol";
-import {TokenUtils} from "src/utils/TokenUtils.sol";
-import {WalletImpl} from "src/utils/WalletImpl.sol";
+import {PausableImpl} from "splits-utils/PausableImpl.sol";
+import {TokenUtils} from "splits-utils/TokenUtils.sol";
+import {WalletImpl} from "splits-utils/WalletImpl.sol";
+
+// splits-pass-through
+// splits-passthru
+// Passthru Wallet
 
 /// @title AutoSwap Implementation
 /// @author 0xSplits
 /// @notice A contract to trustlessly & automatically convert multi-token
-/// revenue into a single token & push to a beneficiary.
+/// revenue into a TODO
 /// Please be aware, owner has _FULL CONTROL_ of the deployment.
-/// @dev This contract uses a modular oracle. Be very careful to use a secure
-/// oracle with sensible defaults & overrides for desired behavior. Otherwise
-/// may result in catastrophic loss of funds.
 /// This contract uses token = address(0) to refer to ETH.
 contract AutoSwapImpl is Clone, WalletImpl, PausableImpl {
     /// -----------------------------------------------------------------------
@@ -36,12 +37,6 @@ contract AutoSwapImpl is Clone, WalletImpl, PausableImpl {
     struct InitParams {
         address owner;
         bool paused;
-    }
-
-    struct SplitParams {
-        address[] accounts;
-        uint32[] percentAllocations;
-        uint32 distributorFee;
     }
 
     /// -----------------------------------------------------------------------

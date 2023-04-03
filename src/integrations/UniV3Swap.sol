@@ -9,8 +9,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SwapperImpl} from "src/SwapperImpl.sol";
 import {SwapperFactory} from "src/SwapperFactory.sol";
 import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
-import {SwapperCallbackValidation} from "src/utils/SwapperCallbackValidation.sol";
-import {TokenUtils} from "src/utils/TokenUtils.sol";
+import {SwapperCallbackValidation} from "src/peripherals/SwapperCallbackValidation.sol";
+import {TokenUtils} from "splits-utils/TokenUtils.sol";
 import {IWETH9} from "src/interfaces/external/IWETH9.sol";
 
 /// @title Integration contract for Swapper & Uniswap V3

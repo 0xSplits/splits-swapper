@@ -7,9 +7,9 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
-import {PausableImpl} from "src/utils/PausableImpl.sol";
-import {TokenUtils} from "src/utils/TokenUtils.sol";
-import {WalletImpl} from "src/utils/WalletImpl.sol";
+import {PausableImpl} from "splits-utils/PausableImpl.sol";
+import {TokenUtils} from "splits-utils/TokenUtils.sol";
+import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 /// @title Swapper Implementation
 /// @author 0xSplits

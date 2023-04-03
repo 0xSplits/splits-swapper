@@ -24,6 +24,7 @@ contract AutoSwapFactory {
     /// -----------------------------------------------------------------------
 
     // TODO: capture split / swapper addresses separately?
+    // what do we want / need here?
     event CreateAutoSwap(AutoSwapImpl indexed autoSwap, CreateAutoSwapParams params);
 
     /// -----------------------------------------------------------------------
@@ -109,6 +110,8 @@ contract AutoSwapFactory {
     // would give auto swap view into the swappers underneath? think it would turn into a nightmare to manage tho
 
     function _createAutoSwap(CreateAutoSwapParams memory params_) internal returns (AutoSwapImpl autoSwap) {
+        // TODO: add checks on recipients?
+
         // create swappers
         uint256 length = params_.recipients.length;
         address[] memory recipients = new address[](length);
@@ -137,7 +140,7 @@ contract AutoSwapFactory {
         autoSwap = AutoSwapImpl(payable(address(autoSwapImpl).clone(abi.encodePacked(underlyingSplit))));
         splitMain.transferControl(underlyingSplit, address(autoSwap));
         autoSwap.initializer(params_.initAutoSwap);
-        // TODO: event ordering?
+        // TODO: event
         emit CreateAutoSwap({autoSwap: autoSwap, params: params_});
     }
 
