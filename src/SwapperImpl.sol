@@ -14,7 +14,7 @@ import {WalletImpl} from "splits-utils/WalletImpl.sol";
 /// @title Swapper Implementation
 /// @author 0xSplits
 /// @notice A contract to trustlessly & automatically convert multi-token
-/// revenue into a single token & push to a beneficiary.
+/// onchain revenue into a single token
 /// Please be aware, owner has _FULL CONTROL_ of the deployment.
 /// @dev This contract uses a modular oracle. Be very careful to use a secure
 /// oracle with sensible defaults & overrides for desired behavior. Otherwise

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.17;
 
 import {LibClone} from "splits-utils/LibClone.sol";
-import {IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
+import {CreateOracleParams, IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
 
 import {SwapperImpl} from "src/SwapperImpl.sol";
 
@@ -30,11 +30,6 @@ contract SwapperFactory {
     struct CreateOracleAndSwapperParams {
         CreateOracleParams createOracle;
         SwapperImpl.InitParams initSwapper;
-    }
-
-    struct CreateOracleParams {
-        IOracleFactory factory;
-        bytes data;
     }
 
     /// -----------------------------------------------------------------------
