@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
+import {CreateOracleParams, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {LibClone} from "splits-utils/LibClone.sol";
-import {CreateOracleParams, IOracle, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
 
-import {SwapperImpl} from "src/SwapperImpl.sol";
+import {SwapperImpl} from "./SwapperImpl.sol";
 
 /// @title Swapper Factory
 /// @author 0xSplits

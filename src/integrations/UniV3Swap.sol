@@ -5,13 +5,13 @@ import {ERC20} from "solmate/tokens/ERC20.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracleFactory.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-
-import {SwapperImpl} from "src/SwapperImpl.sol";
-import {SwapperFactory} from "src/SwapperFactory.sol";
-import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
-import {SwapperCallbackValidation} from "src/peripherals/SwapperCallbackValidation.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
-import {IWETH9} from "src/interfaces/external/IWETH9.sol";
+
+import {ISwapperFlashCallback} from "../interfaces/ISwapperFlashCallback.sol";
+import {IWETH9} from "../interfaces/external/IWETH9.sol";
+import {SwapperCallbackValidation} from "../peripherals/SwapperCallbackValidation.sol";
+import {SwapperImpl} from "../SwapperImpl.sol";
+import {SwapperFactory} from "../SwapperFactory.sol";
 
 /// @title Integration contract for Swapper & Uniswap V3
 /// @author 0xSplits

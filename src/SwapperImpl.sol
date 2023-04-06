@@ -3,13 +3,13 @@ pragma solidity ^0.8.17;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracleFactory.sol";
+import {PausableImpl} from "splits-utils/PausableImpl.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-
-import {ISwapperFlashCallback} from "src/interfaces/ISwapperFlashCallback.sol";
-import {PausableImpl} from "splits-utils/PausableImpl.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
+
+import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
 
 /// @title Swapper Implementation
 /// @author 0xSplits
