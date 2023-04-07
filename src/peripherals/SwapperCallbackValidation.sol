@@ -14,6 +14,6 @@ library SwapperCallbackValidation {
     /// @param swapper_ Address of swapper to validate
     /// @return valid Boolean of whether swapper address is valid
     function verifyCallback(SwapperFactory factory_, SwapperImpl swapper_) internal view returns (bool valid) {
-        return factory_.$isSwapper(swapper_);
+        return factory_.isSwapper(swapper_);
     }
 }

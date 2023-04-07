@@ -2,7 +2,7 @@
 pragma solidity ^0.8.17;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
-import {IOracle} from "splits-oracle/interfaces/IOracleFactory.sol";
+import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {PausableImpl} from "splits-utils/PausableImpl.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -10,6 +10,8 @@ import {TokenUtils} from "splits-utils/TokenUtils.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
+
+// TODO: use getters to avoid $ in external view fn
 
 /// @title Swapper Implementation
 /// @author 0xSplits
@@ -47,7 +49,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         bool paused;
         address beneficiary;
         address tokenToBeneficiary;
-        IOracle oracle;
+        OracleImpl oracle;
     }
 
     /// -----------------------------------------------------------------------
@@ -56,13 +58,13 @@ contract SwapperImpl is WalletImpl, PausableImpl {
 
     event SetBeneficiary(address beneficiary);
     event SetTokenToBeneficiary(address tokenToBeneficiaryd);
-    event SetOracle(IOracle oracle);
+    event SetOracle(OracleImpl oracle);
 
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
-        IOracle.QuoteParams[] quoteParams,
+        OracleImpl.QuoteParams[] quoteParams,
         address tokenToBeneficiary,
         uint256[] amountsToBeneficiary,
         uint256 excessToBeneficiary
@@ -85,11 +87,11 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// slot 0 - 11 bytes free
 
     /// Owned storage
-    /// address public owner;
+    /// address internal owner;
     /// 20 bytes
 
     /// whether non-owner functions are paused
-    /// bool public $paused;
+    /// bool internal $paused;
     /// 1 byte
 
     /// slot 1 - 0 bytes free
@@ -112,7 +114,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// slot 3 - 12 bytes free
 
     /// price oracle for flash
-    IOracle public $oracle;
+    OracleImpl public $oracle;
     /// 20 bytes
 
     /// -----------------------------------------------------------------------
@@ -161,7 +163,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     }
 
     /// set oracle
-    function setOracle(IOracle oracle_) external onlyOwner {
+    function setOracle(OracleImpl oracle_) external onlyOwner {
         $oracle = oracle_;
         emit SetOracle(oracle_);
     }
@@ -185,7 +187,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     }
 
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(IOracle.QuoteParams[] calldata quoteParams_, bytes calldata callbackData_)
+    function flash(OracleImpl.QuoteParams[] calldata quoteParams_, bytes calldata callbackData_)
         external
         payable
         pausable
@@ -209,7 +211,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
-    function _transferToTrader(address tokenToBeneficiary_, IOracle.QuoteParams[] calldata quoteParams_)
+    function _transferToTrader(address tokenToBeneficiary_, OracleImpl.QuoteParams[] calldata quoteParams_)
         internal
         returns (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary)
     {
@@ -220,7 +222,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         uint128 amountToTrader;
         address tokenToTrader;
         for (uint256 i; i < length;) {
-            IOracle.QuoteParams calldata qp = quoteParams_[i];
+            OracleImpl.QuoteParams calldata qp = quoteParams_[i];
 
             if (tokenToBeneficiary_ != qp.quotePair.quote) revert Invalid_QuoteToken();
             tokenToTrader = qp.quotePair.base;

@@ -2,65 +2,36 @@
 pragma solidity ^0.8.17;
 
 import {CreateOracleParams, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
-import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
+import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {LibClone} from "splits-utils/LibClone.sol";
 
 import {SwapperImpl} from "./SwapperImpl.sol";
+
+// TODO: re-visit params / creating swapper+oracle
+// harmonize w diversifier factory
 
 /// @title Swapper Factory
 /// @author 0xSplits
 /// @notice Factory for creating & validating Swappers
 /// @dev This contract uses token = address(0) to refer to ETH.
 contract SwapperFactory {
-    /// -----------------------------------------------------------------------
-    /// libraries
-    /// -----------------------------------------------------------------------
-
     using LibClone for address;
 
-    /// -----------------------------------------------------------------------
-    /// events
-    /// -----------------------------------------------------------------------
-
     event CreateSwapper(SwapperImpl indexed swapper, SwapperImpl.InitParams params);
-
-    /// -----------------------------------------------------------------------
-    /// structs
-    /// -----------------------------------------------------------------------
 
     struct CreateOracleAndSwapperParams {
         CreateOracleParams createOracle;
         SwapperImpl.InitParams initSwapper;
     }
 
-    /// -----------------------------------------------------------------------
-    /// storage
-    /// -----------------------------------------------------------------------
-
-    /// -----------------------------------------------------------------------
-    /// storage - constants & immutables
-    /// -----------------------------------------------------------------------
-
     SwapperImpl public immutable swapperImpl;
 
-    /// -----------------------------------------------------------------------
-    /// storage - mutables
-    /// -----------------------------------------------------------------------
-
     /// mapping of canonical swappers for flash callback validation
-    mapping(SwapperImpl => bool) public $isSwapper;
-
-    /// -----------------------------------------------------------------------
-    /// constructor
-    /// -----------------------------------------------------------------------
+    mapping(SwapperImpl => bool) internal $isSwapper;
 
     constructor() {
         swapperImpl = new SwapperImpl();
     }
-
-    /// -----------------------------------------------------------------------
-    /// functions
-    /// -----------------------------------------------------------------------
 
     /// -----------------------------------------------------------------------
     /// functions - public & external
@@ -72,11 +43,19 @@ contract SwapperFactory {
 
     /// @dev params_.initSwapper.oracle is overridden by newly created oracle
     function createOracleAndSwapper(CreateOracleAndSwapperParams calldata params_) external returns (SwapperImpl) {
-        IOracle oracle = params_.createOracle.factory.createOracle(params_.createOracle.data);
+        OracleImpl oracle = params_.createOracle.factory.createOracle(params_.createOracle.data);
 
         SwapperImpl.InitParams memory initSwapper = params_.initSwapper;
         initSwapper.oracle = oracle;
         return _createSwapper(initSwapper);
+    }
+
+    /// -----------------------------------------------------------------------
+    /// functions - public & external - view
+    /// -----------------------------------------------------------------------
+
+    function isSwapper(SwapperImpl swapper) external view returns (bool) {
+        return $isSwapper[swapper];
     }
 
     /// -----------------------------------------------------------------------
