@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import {CreateOracleParams, IOracleFactory} from "splits-oracle/interfaces/IOracleFactory.sol";
+import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {LibClone} from "splits-utils/LibClone.sol";
 
 import {SwapperImpl} from "./SwapperImpl.sol";
-
-// TODO: re-visit params / creating swapper+oracle
-// harmonize w diversifier factory
 
 /// @title Swapper Factory
 /// @author 0xSplits
@@ -17,11 +14,14 @@ import {SwapperImpl} from "./SwapperImpl.sol";
 contract SwapperFactory {
     using LibClone for address;
 
-    event CreateSwapper(SwapperImpl indexed swapper, SwapperImpl.InitParams params);
+    event CreateSwapper(SwapperImpl indexed swapper, CreateSwapperParams params);
 
-    struct CreateOracleAndSwapperParams {
-        CreateOracleParams createOracle;
-        SwapperImpl.InitParams initSwapper;
+    struct CreateSwapperParams {
+        address owner;
+        bool paused;
+        address beneficiary;
+        address tokenToBeneficiary;
+        OracleParams oracleParams;
     }
 
     SwapperImpl public immutable swapperImpl;
@@ -37,17 +37,22 @@ contract SwapperFactory {
     /// functions - public & external
     /// -----------------------------------------------------------------------
 
-    function createSwapper(SwapperImpl.InitParams calldata params_) external returns (SwapperImpl) {
-        return _createSwapper(params_);
-    }
+    function createSwapper(CreateSwapperParams calldata params_) external returns (SwapperImpl swapper) {
+        OracleImpl oracle = params_.oracleParams._parseIntoOracle();
 
-    /// @dev params_.initSwapper.oracle is overridden by newly created oracle
-    function createOracleAndSwapper(CreateOracleAndSwapperParams calldata params_) external returns (SwapperImpl) {
-        OracleImpl oracle = params_.createOracle.factory.createOracle(params_.createOracle.data);
+        swapper = SwapperImpl(payable(address(swapperImpl).clone()));
+        swapper.initializer(
+            SwapperImpl.InitParams({
+                owner: params_.owner,
+                paused: params_.paused,
+                beneficiary: params_.beneficiary,
+                tokenToBeneficiary: params_.tokenToBeneficiary,
+                oracle: oracle
+            })
+        );
+        $isSwapper[swapper] = true;
 
-        SwapperImpl.InitParams memory initSwapper = params_.initSwapper;
-        initSwapper.oracle = oracle;
-        return _createSwapper(initSwapper);
+        emit CreateSwapper({swapper: swapper, params: params_});
     }
 
     /// -----------------------------------------------------------------------
@@ -56,18 +61,5 @@ contract SwapperFactory {
 
     function isSwapper(SwapperImpl swapper) external view returns (bool) {
         return $isSwapper[swapper];
-    }
-
-    /// -----------------------------------------------------------------------
-    /// functions - private & internal
-    /// -----------------------------------------------------------------------
-
-    function _createSwapper(SwapperImpl.InitParams memory params_) internal returns (SwapperImpl swapper) {
-        swapper = SwapperImpl(payable(address(swapperImpl).clone()));
-        swapper.initializer(params_);
-
-        $isSwapper[swapper] = true;
-
-        emit CreateSwapper({swapper: swapper, params: params_});
     }
 }
