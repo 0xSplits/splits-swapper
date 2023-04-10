@@ -44,7 +44,7 @@ contract SwapperFactoryTest is BaseTest {
             CreateOracleParams({factory: IOracleFactory(address(oracleFactory)), data: abi.encode(initOracleParams)});
         oracleParams.createOracleParams = createOracleParams;
 
-        oracle = oracleFactory.createOracle(initOracleParams);
+        oracle = oracleFactory.createUniV3Oracle(initOracleParams);
         oracleParams.oracle = oracle;
 
         // set swapper up
@@ -100,8 +100,8 @@ contract SwapperFactoryTest is BaseTest {
         vm.expectCall({
             callee: address(oracleFactory),
             msgValue: 0 ether,
-            data: abi.encodeWithSignature("createOracle(bytes)", abi.encode(_initOracleParams()))
-            });
+            data: abi.encodeCall(IOracleFactory.createOracle, abi.encode(_initOracleParams()))
+        });
         swapperFactory.createSwapper(params);
     }
 
