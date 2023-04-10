@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {OracleImpl} from "splits-oracle/OracleImpl.sol";
+import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {LibClone} from "splits-utils/LibClone.sol";
 
 import {SwapperImpl} from "./SwapperImpl.sol";
@@ -52,6 +52,7 @@ contract SwapperFactory {
         );
         $isSwapper[swapper] = true;
 
+        // TODO: should the oracle or SwapperImpl.InitParams be in the event?
         emit CreateSwapper({swapper: swapper, params: params_});
     }
 

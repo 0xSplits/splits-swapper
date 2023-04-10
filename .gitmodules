@@ -13,6 +13,7 @@
 [submodule "lib/v3-periphery"]
 	path = lib/v3-periphery
 	url = https://github.com/Uniswap/v3-periphery
+	branch = 0.8
 [submodule "lib/splits-utils"]
 	path = lib/splits-utils
 	url = https://github.com/0xsplits/splits-utils

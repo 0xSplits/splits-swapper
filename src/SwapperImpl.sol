@@ -11,8 +11,6 @@ import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
 
-// TODO: use getters to avoid $ in external view fn
-
 /// @title Swapper Implementation
 /// @author 0xSplits
 /// @notice A contract to trustlessly & automatically convert multi-token
@@ -86,18 +84,18 @@ contract SwapperImpl is WalletImpl, PausableImpl {
 
     /// slot 0 - 11 bytes free
 
-    /// Owned storage
-    /// address internal owner;
+    /// OwnableImpl storage
+    /// address internal $owner;
     /// 20 bytes
 
-    /// whether non-owner functions are paused
+    /// PausableImpl storage
     /// bool internal $paused;
     /// 1 byte
 
     /// slot 1 - 0 bytes free
 
     /// address to receive post-swap tokens
-    address public $beneficiary;
+    address internal $beneficiary;
     /// 20 bytes
 
     /// used to track eth payback in flash
@@ -108,13 +106,13 @@ contract SwapperImpl is WalletImpl, PausableImpl {
 
     /// token type to send beneficiary
     /// @dev 0x0 used for ETH
-    address public $tokenToBeneficiary;
+    address internal $tokenToBeneficiary;
     /// 20 bytes
 
     /// slot 3 - 12 bytes free
 
     /// price oracle for flash
-    OracleImpl public $oracle;
+    OracleImpl internal $oracle;
     /// 20 bytes
 
     /// -----------------------------------------------------------------------
@@ -129,7 +127,6 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         // only swapperFactory may call `initializer`
         if (msg.sender != swapperFactory) revert Unauthorized();
 
-        // TODO: check if compiler handles packing properly
         // don't need to init wallet separately
         __initPausable({owner_: params_.owner, paused_: params_.paused});
 
@@ -192,19 +189,35 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         payable
         pausable
     {
-        address tokenToBeneficiary = $tokenToBeneficiary;
+        address _tokenToBeneficiary = $tokenToBeneficiary;
         (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary) =
-            _transferToTrader(tokenToBeneficiary, quoteParams_);
+            _transferToTrader(_tokenToBeneficiary, quoteParams_);
 
         ISwapperFlashCallback(msg.sender).swapperFlashCallback({
-            tokenToBeneficiary: tokenToBeneficiary,
+            tokenToBeneficiary: _tokenToBeneficiary,
             amountToBeneficiary: amountToBeneficiary,
             data: callbackData_
         });
 
-        uint256 excessToBeneficiary = _transferToBeneficiary(tokenToBeneficiary, amountToBeneficiary);
+        uint256 excessToBeneficiary = _transferToBeneficiary(_tokenToBeneficiary, amountToBeneficiary);
 
-        emit Flash(msg.sender, quoteParams_, tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
+        emit Flash(msg.sender, quoteParams_, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
+    }
+
+    /// -----------------------------------------------------------------------
+    /// functions - public & external - view
+    /// -----------------------------------------------------------------------
+
+    function beneficiary() external view returns (address) {
+        return $beneficiary;
+    }
+
+    function tokenToBeneficiary() external view returns (address) {
+        return $tokenToBeneficiary;
+    }
+
+    function oracle() external view returns (OracleImpl) {
+        return $oracle;
     }
 
     /// -----------------------------------------------------------------------
@@ -245,7 +258,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         internal
         returns (uint256 excessToBeneficiary)
     {
-        address beneficiary = $beneficiary;
+        address _beneficiary = $beneficiary;
         if (tokenToBeneficiary_._isETH()) {
             if ($_payback < amountToBeneficiary_) {
                 revert InsufficientFunds_FromTrader();
@@ -255,14 +268,14 @@ contract SwapperImpl is WalletImpl, PausableImpl {
             // send eth to beneficiary
             uint256 ethBalance = address(this).balance;
             excessToBeneficiary = ethBalance - amountToBeneficiary_;
-            beneficiary.safeTransferETH(ethBalance);
+            _beneficiary.safeTransferETH(ethBalance);
         } else {
-            tokenToBeneficiary_.safeTransferFrom(msg.sender, beneficiary, amountToBeneficiary_);
+            tokenToBeneficiary_.safeTransferFrom(msg.sender, _beneficiary, amountToBeneficiary_);
 
             // flush excess tokenToBeneficiary to beneficiary
             excessToBeneficiary = ERC20(tokenToBeneficiary_).balanceOf(address(this));
             if (excessToBeneficiary > 0) {
-                tokenToBeneficiary_.safeTransfer(beneficiary, excessToBeneficiary);
+                tokenToBeneficiary_.safeTransfer(_beneficiary, excessToBeneficiary);
             }
         }
     }
