@@ -13,12 +13,13 @@ import {SwapperImpl} from "../src/SwapperImpl.sol";
 // TODO: add fuzz tests
 
 contract SwapperFactoryTest is BaseTest {
-    event CreateSwapper(SwapperImpl indexed swapper, SwapperFactory.CreateSwapperParams params);
+    event CreateSwapper(SwapperImpl indexed swapper, SwapperImpl.InitParams params);
 
     SwapperFactory swapperFactory;
     SwapperImpl swapperImpl;
 
     SwapperFactory.CreateSwapperParams params;
+    SwapperImpl.InitParams swapperInitParams;
 
     UniV3OracleFactory oracleFactory;
 
@@ -58,6 +59,14 @@ contract SwapperFactoryTest is BaseTest {
             tokenToBeneficiary: ETH_ADDRESS,
             oracleParams: oracleParams
         });
+
+        swapperInitParams = SwapperImpl.InitParams({
+            owner: users.alice,
+            paused: false,
+            beneficiary: users.bob,
+            tokenToBeneficiary: ETH_ADDRESS,
+            oracle: oracle
+        });
     }
 
     /// -----------------------------------------------------------------------
@@ -91,7 +100,7 @@ contract SwapperFactoryTest is BaseTest {
     function test_createSwapper_emitsCreateSwapper() public {
         SwapperImpl expectedSwapper = SwapperImpl(_predictNextAddressFrom(address(swapperFactory)));
         _expectEmit();
-        emit CreateSwapper(expectedSwapper, params);
+        emit CreateSwapper(expectedSwapper, swapperInitParams);
         swapperFactory.createSwapper(params);
     }
 

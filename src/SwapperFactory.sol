@@ -14,7 +14,7 @@ import {SwapperImpl} from "./SwapperImpl.sol";
 contract SwapperFactory {
     using LibClone for address;
 
-    event CreateSwapper(SwapperImpl indexed swapper, CreateSwapperParams params);
+    event CreateSwapper(SwapperImpl indexed swapper, SwapperImpl.InitParams params);
 
     struct CreateSwapperParams {
         address owner;
@@ -41,19 +41,17 @@ contract SwapperFactory {
         OracleImpl oracle = params_.oracleParams._parseIntoOracle();
 
         swapper = SwapperImpl(payable(address(swapperImpl).clone()));
-        swapper.initializer(
-            SwapperImpl.InitParams({
+        SwapperImpl.InitParams memory swapperInitParams = SwapperImpl.InitParams({
                 owner: params_.owner,
                 paused: params_.paused,
                 beneficiary: params_.beneficiary,
                 tokenToBeneficiary: params_.tokenToBeneficiary,
                 oracle: oracle
-            })
-        );
+            });
+        swapper.initializer(swapperInitParams);
         $isSwapper[swapper] = true;
 
-        // TODO: should the oracle or SwapperImpl.InitParams be in the event?
-        emit CreateSwapper({swapper: swapper, params: params_});
+        emit CreateSwapper({swapper: swapper, params: swapperInitParams});
     }
 
     /// -----------------------------------------------------------------------
