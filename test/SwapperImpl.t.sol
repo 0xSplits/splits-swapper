@@ -153,13 +153,13 @@ contract SwapperImplTest is BaseTest {
             msgValue: 0,
             data: abi.encodeCall(OracleImpl.getQuoteAmounts, (ethQuoteParams)),
             returnData: abi.encode(mockQuoteAmounts)
-            });
+        });
         vm.mockCall({
             callee: address(oracle),
             msgValue: 0,
             data: abi.encodeCall(OracleImpl.getQuoteAmounts, (mockERC20QuoteParams)),
             returnData: abi.encode(mockQuoteAmounts)
-            });
+        });
     }
 
     /// -----------------------------------------------------------------------
