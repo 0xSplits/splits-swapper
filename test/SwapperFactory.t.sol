@@ -136,6 +136,7 @@ contract SwapperFactoryTest is BaseTest {
     function _initOracleParams() internal view returns (UniV3OracleImpl.InitParams memory) {
         return UniV3OracleImpl.InitParams({
             owner: users.alice,
+            paused: false,
             defaultFee: 30_00, // = 0.3%
             defaultPeriod: 30 minutes,
             defaultScaledOfferFactor: PERCENTAGE_SCALE,

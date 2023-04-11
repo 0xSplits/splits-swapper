@@ -55,7 +55,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// -----------------------------------------------------------------------
 
     event SetBeneficiary(address beneficiary);
-    event SetTokenToBeneficiary(address tokenToBeneficiaryd);
+    event SetTokenToBeneficiary(address tokenToBeneficiary);
     event SetOracle(OracleImpl oracle);
 
     event ReceiveETH(uint256 amount);

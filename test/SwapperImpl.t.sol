@@ -200,7 +200,7 @@ contract SwapperImplTest is BaseTest {
         assertEq(swapper.owner(), initParams.owner);
     }
 
-    function test_initializer_setsPausable() public callerFactory {
+    function test_initializer_setsPaused() public callerFactory {
         vm.prank(address(swapperFactory));
         swapper.initializer(initParams);
         assertEq(swapper.paused(), initParams.paused);

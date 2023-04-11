@@ -13,8 +13,6 @@ import {SwapperCallbackValidation} from "../peripherals/SwapperCallbackValidatio
 import {SwapperImpl} from "../SwapperImpl.sol";
 import {SwapperFactory} from "../SwapperFactory.sol";
 
-// TODO: add IWETH9 to utils
-
 /// @title Integration contract for Swapper & Uniswap V3
 /// @author 0xSplits
 /// @notice Used by EOAs & simple bots to execute swapper#flash with uniswap v3
