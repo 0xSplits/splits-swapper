@@ -3,7 +3,9 @@ pragma solidity ^0.8.17;
 
 import "splits-tests/base.t.sol";
 
-import {CreateOracleParams, IOracleFactory, OracleImpl, OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
+import {
+    CreateOracleParams, IOracleFactory, OracleImpl, OracleParams
+} from "splits-oracle/peripherals/OracleParams.sol";
 import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
 import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 

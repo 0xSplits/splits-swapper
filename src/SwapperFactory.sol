@@ -42,12 +42,12 @@ contract SwapperFactory {
 
         swapper = SwapperImpl(payable(address(swapperImpl).clone()));
         SwapperImpl.InitParams memory swapperInitParams = SwapperImpl.InitParams({
-                owner: params_.owner,
-                paused: params_.paused,
-                beneficiary: params_.beneficiary,
-                tokenToBeneficiary: params_.tokenToBeneficiary,
-                oracle: oracle
-            });
+            owner: params_.owner,
+            paused: params_.paused,
+            beneficiary: params_.beneficiary,
+            tokenToBeneficiary: params_.tokenToBeneficiary,
+            oracle: oracle
+        });
         swapper.initializer(swapperInitParams);
         $isSwapper[swapper] = true;
 

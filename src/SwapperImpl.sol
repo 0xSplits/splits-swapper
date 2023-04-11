@@ -166,6 +166,22 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     }
 
     /// -----------------------------------------------------------------------
+    /// functions - public & external - view
+    /// -----------------------------------------------------------------------
+
+    function beneficiary() external view returns (address) {
+        return $beneficiary;
+    }
+
+    function tokenToBeneficiary() external view returns (address) {
+        return $tokenToBeneficiary;
+    }
+
+    function oracle() external view returns (OracleImpl) {
+        return $oracle;
+    }
+
+    /// -----------------------------------------------------------------------
     /// functions - public & external - permissionless
     /// -----------------------------------------------------------------------
 
@@ -202,22 +218,6 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         uint256 excessToBeneficiary = _transferToBeneficiary(_tokenToBeneficiary, amountToBeneficiary);
 
         emit Flash(msg.sender, quoteParams_, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
-    }
-
-    /// -----------------------------------------------------------------------
-    /// functions - public & external - view
-    /// -----------------------------------------------------------------------
-
-    function beneficiary() external view returns (address) {
-        return $beneficiary;
-    }
-
-    function tokenToBeneficiary() external view returns (address) {
-        return $tokenToBeneficiary;
-    }
-
-    function oracle() external view returns (OracleImpl) {
-        return $oracle;
     }
 
     /// -----------------------------------------------------------------------
