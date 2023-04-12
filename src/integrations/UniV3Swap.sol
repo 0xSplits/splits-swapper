@@ -80,6 +80,9 @@ contract UniV3Swap is ISwapperFlashCallback {
         uint256 length = exactInputParams.length;
         for (uint256 i; i < length;) {
             ISwapRouter.ExactInputParams memory eip = exactInputParams[i];
+            address token = _getStartTokenFromPath(eip.path);
+
+            token.safeApprove(address(swapRouter), eip.amountIn);
             totalOut += swapRouter.exactInput(eip);
 
             unchecked {
@@ -112,6 +115,12 @@ contract UniV3Swap is ISwapperFlashCallback {
             if (excessBalance > 0) {
                 tokenToBeneficiary_.safeTransfer(excessRecipient, excessBalance);
             }
+        }
+    }
+
+    function _getStartTokenFromPath(bytes memory path) internal pure returns (address token) {
+        assembly {
+            token := mload(add(path, 0x14))
         }
     }
 }
