@@ -126,7 +126,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         vm.mockCall({
             callee: address(params_.oracleParams.createOracleParams.factory),
             msgValue: 0,
-            data: params_.oracleParams.createOracleParams.data,
+            data: abi.encodeCall(IOracleFactory.createOracle, (params_.oracleParams.createOracleParams.data)),
             returnData: abi.encode(newOracle_)
         });
         clone = address(swapperFactory.createSwapper(params_));
@@ -142,7 +142,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         vm.mockCall({
             callee: address(params_.oracleParams.createOracleParams.factory),
             msgValue: 0,
-            data: params_.oracleParams.createOracleParams.data,
+            data: abi.encodeCall(IOracleFactory.createOracle, (params_.oracleParams.createOracleParams.data)),
             returnData: abi.encode(newOracle_)
         });
         clone = address(swapperFactory.createSwapper(params_));
@@ -159,7 +159,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         vm.mockCall({
             callee: address(params_.oracleParams.createOracleParams.factory),
             msgValue: 0,
-            data: params_.oracleParams.createOracleParams.data,
+            data: abi.encodeCall(IOracleFactory.createOracle, (params_.oracleParams.createOracleParams.data)),
             returnData: abi.encode(newOracle_)
         });
         clone = address(swapperFactory.createSwapper(params_));
@@ -178,7 +178,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         vm.mockCall({
             callee: address(params_.oracleParams.createOracleParams.factory),
             msgValue: 0,
-            data: params_.oracleParams.createOracleParams.data,
+            data: abi.encodeCall(IOracleFactory.createOracle, (params_.oracleParams.createOracleParams.data)),
             returnData: abi.encode(newOracle_)
         });
         clone = address(swapperFactory.createSwapper(params_));
