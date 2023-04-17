@@ -13,7 +13,6 @@ import {SwapperFactory} from "../src/SwapperFactory.sol";
 import {SwapperImpl} from "../src/SwapperImpl.sol";
 
 // TODO: separate file of tests for integration contract
-// TODO: something something modular test for inheritances?
 // TODO: add fuzzing
 
 contract SwapperImplTest is BaseTest {
