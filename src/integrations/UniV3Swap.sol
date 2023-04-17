@@ -3,12 +3,12 @@ pragma solidity ^0.8.17;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
+import {IWETH9} from "splits-utils/interfaces/external/IWETH9.sol";
 import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
 
 import {ISwapperFlashCallback} from "../interfaces/ISwapperFlashCallback.sol";
-import {IWETH9} from "../interfaces/external/IWETH9.sol";
 import {SwapperCallbackValidation} from "../peripherals/SwapperCallbackValidation.sol";
 import {SwapperImpl} from "../SwapperImpl.sol";
 import {SwapperFactory} from "../SwapperFactory.sol";
