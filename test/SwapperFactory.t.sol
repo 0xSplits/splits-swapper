@@ -2,6 +2,7 @@
 pragma solidity ^0.8.17;
 
 import "splits-tests/base.t.sol";
+import {LibCloneBase} from "splits-tests/LibClone.t.sol";
 
 import {
     CreateOracleParams, IOracleFactory, OracleImpl, OracleParams
@@ -14,7 +15,7 @@ import {SwapperImpl} from "../src/SwapperImpl.sol";
 
 // TODO: add fuzz tests
 
-contract SwapperFactoryTest is BaseTest {
+contract SwapperFactoryTest is BaseTest, LibCloneBase {
     event CreateSwapper(SwapperImpl indexed swapper, SwapperImpl.InitParams params);
 
     SwapperFactory swapperFactory;
@@ -30,8 +31,8 @@ contract SwapperFactoryTest is BaseTest {
     OracleParams oracleParams;
     OracleImpl oracle;
 
-    function setUp() public virtual override {
-        super.setUp();
+    function setUp() public virtual override(BaseTest, LibCloneBase) {
+        BaseTest.setUp();
 
         // set oracle up
         oracleFactory = new UniV3OracleFactory({
@@ -69,14 +70,16 @@ contract SwapperFactoryTest is BaseTest {
             tokenToBeneficiary: ETH_ADDRESS,
             oracle: oracle
         });
+
+        // setup LibCloneBase
+        impl = address(swapperImpl);
+        clone = address(swapperFactory.createSwapper(params));
+        amount = 1 ether;
+        data = "Hello, World!";
     }
 
     /// -----------------------------------------------------------------------
-    /// tests - basic
-    /// -----------------------------------------------------------------------
-
-    /// -----------------------------------------------------------------------
-    /// tests - basic - createSwapper
+    /// createSwapper
     /// -----------------------------------------------------------------------
 
     function test_createSwapper_callsInitializer() public {
@@ -116,8 +119,76 @@ contract SwapperFactoryTest is BaseTest {
         swapperFactory.createSwapper(params);
     }
 
+    function testFuzz_createSwapper_createsClone_code(
+        SwapperFactory.CreateSwapperParams calldata params_,
+        address newOracle_
+    ) public {
+        vm.mockCall({
+            callee: address(params_.oracleParams.createOracleParams.factory),
+            msgValue: 0,
+            data: params_.oracleParams.createOracleParams.data,
+            returnData: abi.encode(newOracle_)
+        });
+        clone = address(swapperFactory.createSwapper(params_));
+
+        test_clone_code();
+    }
+
+    function testFuzz_createSwapper_createsClone_canReceiveETH(
+        SwapperFactory.CreateSwapperParams calldata params_,
+        address newOracle_,
+        uint96 amount_
+    ) public {
+        vm.mockCall({
+            callee: address(params_.oracleParams.createOracleParams.factory),
+            msgValue: 0,
+            data: params_.oracleParams.createOracleParams.data,
+            returnData: abi.encode(newOracle_)
+        });
+        clone = address(swapperFactory.createSwapper(params_));
+        amount = amount_;
+
+        test_clone_canReceiveETH();
+    }
+
+    function testFuzz_createSwapper_createsClone_emitsReceiveETH(
+        SwapperFactory.CreateSwapperParams calldata params_,
+        address newOracle_,
+        uint96 amount_
+    ) public {
+        vm.mockCall({
+            callee: address(params_.oracleParams.createOracleParams.factory),
+            msgValue: 0,
+            data: params_.oracleParams.createOracleParams.data,
+            returnData: abi.encode(newOracle_)
+        });
+        clone = address(swapperFactory.createSwapper(params_));
+        amount = amount_;
+
+        test_clone_emitsReceiveETH();
+    }
+
+    function testFuzz_createSwapper_createsClone_canDelegateCall(
+        SwapperFactory.CreateSwapperParams calldata params_,
+        address newOracle_,
+        bytes calldata data_
+    ) public {
+        vm.assume(data_.length > 0);
+
+        vm.mockCall({
+            callee: address(params_.oracleParams.createOracleParams.factory),
+            msgValue: 0,
+            data: params_.oracleParams.createOracleParams.data,
+            returnData: abi.encode(newOracle_)
+        });
+        clone = address(swapperFactory.createSwapper(params_));
+        data = data_;
+
+        test_clone_canDelegateCall();
+    }
+
     /// -----------------------------------------------------------------------
-    /// tests - basic - isSwapper
+    /// isSwapper
     /// -----------------------------------------------------------------------
 
     function test_isSwapper() public {
