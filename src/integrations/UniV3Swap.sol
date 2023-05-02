@@ -9,7 +9,6 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
 
 import {ISwapperFlashCallback} from "../interfaces/ISwapperFlashCallback.sol";
-import {SwapperCallbackValidation} from "../peripherals/SwapperCallbackValidation.sol";
 import {SwapperImpl} from "../SwapperImpl.sol";
 import {SwapperFactory} from "../SwapperFactory.sol";
 
@@ -18,7 +17,6 @@ import {SwapperFactory} from "../SwapperFactory.sol";
 /// @notice Used by EOAs & simple bots to execute swapper#flash with uniswap v3
 /// This contract uses token = address(0) to refer to ETH.
 contract UniV3Swap is ISwapperFlashCallback {
-    using SwapperCallbackValidation for SwapperFactory;
     using SafeTransferLib for address;
     using TokenUtils for address;
 
@@ -60,14 +58,10 @@ contract UniV3Swap is ISwapperFlashCallback {
     /// swapper#flash callback
     /// @dev by end of function if tokenToBeneficiary_ is eth, must have sent amountToBeneficiary_
     /// to swapper#payback. Otherwise, must approve swapper to transferFrom amountToBeneficiary_
+    /// DO NOT HOLD FUNDS IN THIS CONTRACT WITHOUT PROPER VERIFICATION OF MSG.SENDER
     function swapperFlashCallback(address tokenToBeneficiary_, uint256 amountToBeneficiary_, bytes calldata data_)
         external
     {
-        SwapperImpl swapper = SwapperImpl(msg.sender);
-        if (!swapperFactory.verifyCallback(swapper)) {
-            revert Unauthorized();
-        }
-
         uint256 ethBalance = address(this).balance;
         if (!tokenToBeneficiary_._isETH() && ethBalance != 0) {
             weth9.deposit{value: ethBalance}();
@@ -99,7 +93,7 @@ contract UniV3Swap is ISwapperFlashCallback {
             weth9.withdraw(weth9Balance);
 
             // send req'd amt to swapper#payback
-            swapper.payback{value: amountToBeneficiary_}();
+            SwapperImpl(msg.sender).payback{value: amountToBeneficiary_}();
 
             // xfr excess out
             ethBalance = address(this).balance;

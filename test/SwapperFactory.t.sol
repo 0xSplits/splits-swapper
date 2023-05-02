@@ -186,17 +186,6 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
     }
 
     /// -----------------------------------------------------------------------
-    /// isSwapper
-    /// -----------------------------------------------------------------------
-
-    function test_isSwapper() public {
-        SwapperImpl expectedSwapper = SwapperImpl(_predictNextAddressFrom(address(swapperFactory)));
-        assertFalse(swapperFactory.isSwapper(expectedSwapper));
-        swapperFactory.createSwapper(params);
-        assertTrue(swapperFactory.isSwapper(expectedSwapper));
-    }
-
-    /// -----------------------------------------------------------------------
     /// internal
     /// -----------------------------------------------------------------------
 
