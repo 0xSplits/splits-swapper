@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import {OracleImpl} from "splits-oracle/OracleImpl.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {LibClone} from "splits-utils/LibClone.sol";
 
@@ -38,7 +38,7 @@ contract SwapperFactory {
     /// -----------------------------------------------------------------------
 
     function createSwapper(CreateSwapperParams calldata params_) external returns (SwapperImpl swapper) {
-        OracleImpl oracle = params_.oracleParams._parseIntoOracle();
+        IOracle oracle = params_.oracleParams._parseIntoOracle();
 
         swapper = SwapperImpl(payable(address(swapperImpl).clone()));
         SwapperImpl.InitParams memory swapperInitParams = SwapperImpl.InitParams({

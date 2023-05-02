@@ -2,9 +2,9 @@
 pragma solidity ^0.8.17;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
 import {IWETH9} from "splits-utils/interfaces/external/IWETH9.sol";
-import {OracleImpl} from "splits-oracle/OracleImpl.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
 
@@ -26,7 +26,7 @@ contract UniV3Swap is ISwapperFlashCallback {
     error InsufficientFunds();
 
     struct InitFlashParams {
-        OracleImpl.QuoteParams[] quoteParams;
+        IOracle.QuoteParams[] quoteParams;
         FlashCallbackData flashCallbackData;
     }
 

@@ -4,7 +4,7 @@ pragma solidity ^0.8.17;
 import "splits-tests/Base.t.sol";
 
 import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
-import {OracleImpl, QuotePair} from "splits-oracle/OracleImpl.sol";
+import {IOracle, QuotePair} from "splits-oracle/interfaces/IOracle.sol";
 import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 
@@ -28,13 +28,13 @@ contract SwapperImplTest is BaseTest {
     event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
     event SetBeneficiary(address beneficiary);
     event SetTokenToBeneficiary(address tokenToBeneficiaryd);
-    event SetOracle(OracleImpl oracle);
+    event SetOracle(IOracle oracle);
 
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
-        OracleImpl.QuoteParams[] quoteParams,
+        IOracle.QuoteParams[] quoteParams,
         address tokenToBeneficiary,
         uint256[] amountsToBeneficiary,
         uint256 excessToBeneficiary
@@ -50,19 +50,19 @@ contract SwapperImplTest is BaseTest {
 
     UniV3OracleFactory oracleFactory;
     UniV3OracleImpl.InitParams initOracleParams;
-    OracleImpl oracle;
+    IOracle oracle;
     OracleParams oracleParams;
 
-    OracleImpl.QuoteParams[] ethQuoteParams;
-    OracleImpl.QuoteParams[] mockERC20QuoteParams;
+    IOracle.QuoteParams[] ethQuoteParams;
+    IOracle.QuoteParams[] mockERC20QuoteParams;
 
     uint256[] mockQuoteAmounts;
 
     address trader;
     address beneficiary;
 
-    OracleImpl.QuoteParams[] quoteParams;
-    OracleImpl.QuoteParams qp;
+    IOracle.QuoteParams[] quoteParams;
+    IOracle.QuoteParams qp;
     address base;
     address quote;
 
@@ -115,14 +115,14 @@ contract SwapperImplTest is BaseTest {
         _deal({account: address(swapperImplHarness)});
 
         ethQuoteParams.push(
-            OracleImpl.QuoteParams({
+            IOracle.QuoteParams({
                 quotePair: QuotePair({base: address(mockERC20), quote: ETH_ADDRESS}),
                 baseAmount: 1 ether,
                 data: ""
             })
         );
         mockERC20QuoteParams.push(
-            OracleImpl.QuoteParams({
+            IOracle.QuoteParams({
                 quotePair: QuotePair({base: ETH_ADDRESS, quote: address(mockERC20)}),
                 baseAmount: 1 ether,
                 data: ""
@@ -150,13 +150,13 @@ contract SwapperImplTest is BaseTest {
         vm.mockCall({
             callee: address(oracle),
             msgValue: 0,
-            data: abi.encodeCall(OracleImpl.getQuoteAmounts, (ethQuoteParams)),
+            data: abi.encodeCall(IOracle.getQuoteAmounts, (ethQuoteParams)),
             returnData: abi.encode(mockQuoteAmounts)
         });
         vm.mockCall({
             callee: address(oracle),
             msgValue: 0,
-            data: abi.encodeCall(OracleImpl.getQuoteAmounts, (mockERC20QuoteParams)),
+            data: abi.encodeCall(IOracle.getQuoteAmounts, (mockERC20QuoteParams)),
             returnData: abi.encode(mockQuoteAmounts)
         });
     }
@@ -274,20 +274,20 @@ contract SwapperImplTest is BaseTest {
 
     function test_revertWhen_callerNotOwner_setOracle() public {
         vm.expectRevert(Unauthorized.selector);
-        swapper.setOracle(OracleImpl(users.eve));
+        swapper.setOracle(IOracle(users.eve));
     }
 
     function test_setOracle_setsOracle() public callerOwner {
         vm.prank(initParams.owner);
-        swapper.setOracle(OracleImpl(users.eve));
+        swapper.setOracle(IOracle(users.eve));
         assertEq(address(swapper.oracle()), users.eve);
     }
 
     function test_setOracle_emitsSetOracle() public callerOwner {
         vm.prank(initParams.owner);
         vm.expectEmit();
-        emit SetOracle(OracleImpl(users.eve));
-        swapper.setOracle(OracleImpl(users.eve));
+        emit SetOracle(IOracle(users.eve));
+        swapper.setOracle(IOracle(users.eve));
     }
 
     /// -----------------------------------------------------------------------
@@ -447,7 +447,7 @@ contract SwapperImplTest is BaseTest {
         vm.mockCall({
             callee: address(oracle),
             msgValue: 0,
-            data: abi.encodeCall(OracleImpl.getQuoteAmounts, (quoteParams)),
+            data: abi.encodeCall(IOracle.getQuoteAmounts, (quoteParams)),
             returnData: abi.encode(mockQuoteAmounts)
         });
 
@@ -462,7 +462,7 @@ contract SwapperImplTest is BaseTest {
         vm.mockCall({
             callee: address(oracle),
             msgValue: 0,
-            data: abi.encodeCall(OracleImpl.getQuoteAmounts, (quoteParams)),
+            data: abi.encodeCall(IOracle.getQuoteAmounts, (quoteParams)),
             returnData: abi.encode(mockQuoteAmounts)
         });
 
@@ -474,7 +474,7 @@ contract SwapperImplTest is BaseTest {
         vm.expectCall({
             callee: address(oracle),
             msgValue: 0,
-            data: abi.encodeCall(OracleImpl.getQuoteAmounts, (quoteParams))
+            data: abi.encodeCall(IOracle.getQuoteAmounts, (quoteParams))
         });
         swapperImplHarness.exposed_transferToTrader(quote, quoteParams);
     }
@@ -539,7 +539,7 @@ contract SwapperImplHarness is SwapperImpl {
         return $_payback;
     }
 
-    function exposed_transferToTrader(address tokenToBeneficiary_, OracleImpl.QuoteParams[] calldata quoteParams_)
+    function exposed_transferToTrader(address tokenToBeneficiary_, IOracle.QuoteParams[] calldata quoteParams_)
         external
         returns (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary)
     {
