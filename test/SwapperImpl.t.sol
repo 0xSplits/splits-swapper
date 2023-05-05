@@ -4,13 +4,20 @@ pragma solidity ^0.8.17;
 import "splits-tests/Base.t.sol";
 
 import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
-import {IOracle, QuotePair} from "splits-oracle/interfaces/IOracle.sol";
+import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
+import {QuotePair} from "splits-utils/QuotePair.sol";
+import {QuoteParams} from "splits-utils/QuoteParams.sol";
 import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 
 import {ISwapperFlashCallback} from "../src/interfaces/ISwapperFlashCallback.sol";
 import {SwapperFactory} from "../src/SwapperFactory.sol";
 import {SwapperImpl} from "../src/SwapperImpl.sol";
+
+// TODO: add flash test for scaling override ?
+// TODO: add flash test for weth-weth
+// TODO: add flash test for eth-weth
+// TODO: add flash test for eth-eth
 
 // TODO: separate file of tests for integration contract
 // TODO: add fuzzing
@@ -29,12 +36,14 @@ contract SwapperImplTest is BaseTest {
     event SetBeneficiary(address beneficiary);
     event SetTokenToBeneficiary(address tokenToBeneficiaryd);
     event SetOracle(IOracle oracle);
+    event SetDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor);
+    event SetPairOverrides(SwapperImpl.SetPairOverrideParams[] params);
 
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
-        IOracle.QuoteParams[] quoteParams,
+        QuoteParams[] quoteParams,
         address tokenToBeneficiary,
         uint256[] amountsToBeneficiary,
         uint256 excessToBeneficiary
@@ -45,24 +54,30 @@ contract SwapperImplTest is BaseTest {
     SwapperImpl swapperImpl;
     SwapperImpl swapper;
 
-    SwapperFactory.CreateSwapperParams createSwapperParams;
-    SwapperImpl.InitParams initParams;
-
     UniV3OracleFactory oracleFactory;
     UniV3OracleImpl.InitParams initOracleParams;
     IOracle oracle;
     OracleParams oracleParams;
 
-    IOracle.QuoteParams[] ethQuoteParams;
-    IOracle.QuoteParams[] mockERC20QuoteParams;
+    QuoteParams[] ethQuoteParams;
+    QuoteParams[] mockERC20QuoteParams;
 
     uint256[] mockQuoteAmounts;
 
-    address trader;
-    address beneficiary;
+    QuotePair wethETH;
+    QuotePair usdcETH;
 
-    IOracle.QuoteParams[] quoteParams;
-    IOracle.QuoteParams qp;
+    address trader;
+
+    address beneficiary;
+    address owner;
+    bool paused;
+    address tokenToBeneficiary;
+    uint32 defaultScaledOfferFactor;
+    SwapperImpl.SetPairOverrideParams[] pairOverrides;
+
+    QuoteParams[] quoteParams;
+    QuoteParams qp;
     address base;
     address quote;
 
@@ -91,38 +106,40 @@ contract SwapperImplTest is BaseTest {
         swapperFactory = new SwapperFactory();
         swapperImpl = swapperFactory.swapperImpl();
 
+        owner = users.alice;
         beneficiary = users.bob;
+        paused = false;
+        tokenToBeneficiary = ETH_ADDRESS;
+        defaultScaledOfferFactor = 99_00_00;
 
-        createSwapperParams = SwapperFactory.CreateSwapperParams({
-            owner: users.alice,
-            paused: false,
-            beneficiary: beneficiary,
-            tokenToBeneficiary: ETH_ADDRESS,
-            oracleParams: oracleParams
-        });
-        initParams = SwapperImpl.InitParams({
-            owner: users.alice,
-            paused: false,
-            beneficiary: beneficiary,
-            tokenToBeneficiary: ETH_ADDRESS,
-            oracle: oracle
-        });
-        swapper = swapperFactory.createSwapper(createSwapperParams);
+        wethETH = QuotePair({base: WETH9, quote: ETH_ADDRESS});
+        usdcETH = QuotePair({base: USDC, quote: ETH_ADDRESS});
+
+        pairOverrides.push(
+            SwapperImpl.SetPairOverrideParams({
+                quotePair: wethETH,
+                pairOverride: SwapperImpl.PairOverride({
+                    scaledOfferFactor: PERCENTAGE_SCALE // no discount
+                })
+            })
+        );
+
+        swapper = swapperFactory.createSwapper(_createSwapperParams());
         _deal({account: address(swapper)});
 
         swapperImplHarness = new SwapperImplHarness();
-        swapperImplHarness.initializer(initParams);
+        swapperImplHarness.initializer(_initSwapperParams());
         _deal({account: address(swapperImplHarness)});
 
         ethQuoteParams.push(
-            IOracle.QuoteParams({
+            QuoteParams({
                 quotePair: QuotePair({base: address(mockERC20), quote: ETH_ADDRESS}),
                 baseAmount: 1 ether,
                 data: ""
             })
         );
         mockERC20QuoteParams.push(
-            IOracle.QuoteParams({
+            QuoteParams({
                 quotePair: QuotePair({base: ETH_ADDRESS, quote: address(mockERC20)}),
                 baseAmount: 1 ether,
                 data: ""
@@ -161,6 +178,30 @@ contract SwapperImplTest is BaseTest {
         });
     }
 
+    function _initSwapperParams() internal view returns (SwapperImpl.InitParams memory) {
+        return SwapperImpl.InitParams({
+            owner: owner,
+            paused: paused,
+            beneficiary: beneficiary,
+            tokenToBeneficiary: tokenToBeneficiary,
+            oracle: oracle,
+            defaultScaledOfferFactor: defaultScaledOfferFactor,
+            pairOverrides: pairOverrides
+        });
+    }
+
+    function _createSwapperParams() internal view returns (SwapperFactory.CreateSwapperParams memory) {
+        return SwapperFactory.CreateSwapperParams({
+            owner: owner,
+            paused: paused,
+            beneficiary: beneficiary,
+            tokenToBeneficiary: tokenToBeneficiary,
+            oracleParams: oracleParams,
+            defaultScaledOfferFactor: defaultScaledOfferFactor,
+            pairOverrides: pairOverrides
+        });
+    }
+
     /// -----------------------------------------------------------------------
     /// modifiers
     /// -----------------------------------------------------------------------
@@ -186,42 +227,78 @@ contract SwapperImplTest is BaseTest {
     /// -----------------------------------------------------------------------
 
     function test_revertWhen_callerNotFactory_initializer() public {
-        vm.expectRevert(Unauthorized.selector);
-        swapperImpl.initializer(initParams);
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
 
         vm.expectRevert(Unauthorized.selector);
-        swapper.initializer(initParams);
+        swapperImpl.initializer(initSwapperParams);
+
+        vm.expectRevert(Unauthorized.selector);
+        swapper.initializer(initSwapperParams);
     }
 
     function test_initializer_setsOwner() public callerFactory {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
         vm.prank(address(swapperFactory));
-        swapper.initializer(initParams);
-        assertEq(swapper.owner(), initParams.owner);
+        swapper.initializer(initSwapperParams);
+        assertEq(swapper.owner(), initSwapperParams.owner);
     }
 
     function test_initializer_setsPaused() public callerFactory {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
         vm.prank(address(swapperFactory));
-        swapper.initializer(initParams);
-        assertEq(swapper.paused(), initParams.paused);
+        swapper.initializer(initSwapperParams);
+        assertEq(swapper.paused(), initSwapperParams.paused);
     }
 
     function test_initializer_setsBeneficiary() public callerFactory {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
         vm.prank(address(swapperFactory));
-        swapper.initializer(initParams);
-        assertEq(swapper.beneficiary(), initParams.beneficiary);
+        swapper.initializer(initSwapperParams);
+        assertEq(swapper.beneficiary(), initSwapperParams.beneficiary);
     }
 
     function test_initializer_setsTokenToBeneficiary() public callerFactory {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
         vm.prank(address(swapperFactory));
-        swapper.initializer(initParams);
-        assertEq(swapper.tokenToBeneficiary(), initParams.tokenToBeneficiary);
+        swapper.initializer(initSwapperParams);
+        assertEq(swapper.tokenToBeneficiary(), initSwapperParams.tokenToBeneficiary);
+    }
+
+    function test_initializer_setsDefaultScaledOfferFactor() public callerFactory {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(address(swapperFactory));
+        swapper.initializer(initSwapperParams);
+        assertEq(swapper.defaultScaledOfferFactor(), initSwapperParams.defaultScaledOfferFactor);
+    }
+
+    function test_initializer_setsPairOverrides() public callerFactory {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(address(swapperFactory));
+        swapper.initializer(initSwapperParams);
+
+        uint256 length = initSwapperParams.pairOverrides.length;
+        QuotePair[] memory initQuotePairs = new QuotePair[](length);
+        SwapperImpl.PairOverride[] memory initPairOverrides = new SwapperImpl.PairOverride[](length);
+        for (uint256 i; i < length; i++) {
+            initQuotePairs[i] = initSwapperParams.pairOverrides[i].quotePair;
+            initPairOverrides[i] = initSwapperParams.pairOverrides[i].pairOverride;
+        }
+        assertEq(swapper.getPairOverrides(initQuotePairs), initPairOverrides);
     }
 
     function test_initializer_emitsOwnershipTransferred() public callerFactory {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
         vm.prank(address(swapperFactory));
         _expectEmit();
-        emit OwnershipTransferred(address(0), initParams.owner);
-        swapper.initializer(initParams);
+        emit OwnershipTransferred(address(0), initSwapperParams.owner);
+        swapper.initializer(initSwapperParams);
     }
 
     /// -----------------------------------------------------------------------
@@ -234,13 +311,17 @@ contract SwapperImplTest is BaseTest {
     }
 
     function test_setBeneficiary_setsBeneficiary() public callerOwner {
-        vm.prank(initParams.owner);
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
         swapper.setBeneficiary(users.eve);
         assertEq(swapper.beneficiary(), users.eve);
     }
 
     function test_setBeneficiary_emitsSetBeneficiary() public callerOwner {
-        vm.prank(initParams.owner);
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
         vm.expectEmit();
         emit SetBeneficiary(users.eve);
         swapper.setBeneficiary(users.eve);
@@ -256,13 +337,17 @@ contract SwapperImplTest is BaseTest {
     }
 
     function test_setTokenToBeneficiary_setsTokenToBeneficiary() public callerOwner {
-        vm.prank(initParams.owner);
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
         swapper.setTokenToBeneficiary(users.eve);
         assertEq(swapper.tokenToBeneficiary(), users.eve);
     }
 
     function test_setTokenToBeneficiary_emitsSetTokenToBeneficiary() public callerOwner {
-        vm.prank(initParams.owner);
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
         vm.expectEmit();
         emit SetTokenToBeneficiary(users.eve);
         swapper.setTokenToBeneficiary(users.eve);
@@ -278,16 +363,105 @@ contract SwapperImplTest is BaseTest {
     }
 
     function test_setOracle_setsOracle() public callerOwner {
-        vm.prank(initParams.owner);
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
         swapper.setOracle(IOracle(users.eve));
         assertEq(address(swapper.oracle()), users.eve);
     }
 
     function test_setOracle_emitsSetOracle() public callerOwner {
-        vm.prank(initParams.owner);
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
         vm.expectEmit();
         emit SetOracle(IOracle(users.eve));
         swapper.setOracle(IOracle(users.eve));
+    }
+
+    /// -----------------------------------------------------------------------
+    /// tests - basic - setDefaultScaledOfferFactor
+    /// -----------------------------------------------------------------------
+
+    function test_revertWhen_callerNotOwner_setDefaultScaledOfferFactor() public {
+        uint32 newDefaultScaledOfferFactor = 98_00_00;
+        vm.expectRevert(Unauthorized.selector);
+        swapper.setDefaultScaledOfferFactor(newDefaultScaledOfferFactor);
+    }
+
+    function test_setDefaultScaledOfferFactor_setsDefaultScaledOfferFactor() public callerOwner {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+        uint32 newDefaultScaledOfferFactor = 98_00_00;
+
+        vm.prank(initSwapperParams.owner);
+        swapper.setDefaultScaledOfferFactor(newDefaultScaledOfferFactor);
+        assertEq(swapper.defaultScaledOfferFactor(), newDefaultScaledOfferFactor);
+    }
+
+    function test_setDefaultScaledOfferFactor_emitsSetDefaultScaledOfferFactor() public callerOwner {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+        uint32 newDefaultScaledOfferFactor = 98_00_00;
+
+        vm.prank(initSwapperParams.owner);
+        vm.expectEmit();
+        emit SetDefaultScaledOfferFactor(newDefaultScaledOfferFactor);
+        swapper.setDefaultScaledOfferFactor(newDefaultScaledOfferFactor);
+    }
+
+    /// -----------------------------------------------------------------------
+    /// tests - basic - setPairOverrides
+    /// -----------------------------------------------------------------------
+
+    function test_revertWhen_callerNotOwner_setPairOverrides() public {
+        vm.expectRevert(Unauthorized.selector);
+        swapper.setPairOverrides(pairOverrides);
+    }
+
+    function test_setPairOverrides_setsPairOverrides() public callerOwner {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        delete pairOverrides;
+        pairOverrides.push(SwapperImpl.SetPairOverrideParams({
+                quotePair: wethETH,
+                pairOverride: SwapperImpl.PairOverride({scaledOfferFactor: 0})
+                }));
+        pairOverrides.push(SwapperImpl.SetPairOverrideParams({
+                quotePair: usdcETH,
+                pairOverride: SwapperImpl.PairOverride({scaledOfferFactor: 98_00_00})
+                }));
+        uint256 length = pairOverrides.length;
+
+        vm.prank(initSwapperParams.owner);
+        swapper.setPairOverrides(pairOverrides);
+
+        QuotePair[] memory quotePairs = new QuotePair[](length);
+        SwapperImpl.PairOverride[] memory newPairOverrides = new SwapperImpl.PairOverride[](length);
+        for (uint256 i; i < length; i++) {
+            quotePairs[i] = pairOverrides[i].quotePair;
+            newPairOverrides[i] = pairOverrides[i].pairOverride;
+        }
+        assertEq(swapper.getPairOverrides(quotePairs), newPairOverrides);
+    }
+
+    function test_setPairOverrides_emitsSetPairOverrides() public callerOwner {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        // TODO: use setup?
+
+        delete pairOverrides;
+        pairOverrides.push(SwapperImpl.SetPairOverrideParams({
+            quotePair: wethETH,
+            pairOverride: SwapperImpl.PairOverride({scaledOfferFactor: 0})
+        }));
+        pairOverrides.push(SwapperImpl.SetPairOverrideParams({
+            quotePair: usdcETH,
+            pairOverride: SwapperImpl.PairOverride({scaledOfferFactor: 98_00_00})
+        }));
+
+        vm.prank(initSwapperParams.owner);
+        vm.expectEmit();
+        emit SetPairOverrides(pairOverrides);
+        swapper.setPairOverrides(pairOverrides);
     }
 
     /// -----------------------------------------------------------------------
@@ -310,7 +484,9 @@ contract SwapperImplTest is BaseTest {
     /// -----------------------------------------------------------------------
 
     function test_revertWhen_paused_flash() public {
-        vm.prank(initParams.owner);
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
         swapper.setPaused(true);
 
         vm.expectRevert(Paused.selector);
@@ -320,36 +496,41 @@ contract SwapperImplTest is BaseTest {
     function test_flash_mockERC20ToETH() public unpaused {
         vm.startPrank(trader);
 
+        uint256 value = 1 ether * uint256(defaultScaledOfferFactor) / PERCENTAGE_SCALE;
+
         vm.mockCall({
             callee: trader,
             msgValue: 0,
-            data: abi.encodeCall(ISwapperFlashCallback.swapperFlashCallback, (quote, 1 ether, "")),
+            data: abi.encodeCall(ISwapperFlashCallback.swapperFlashCallback, (quote, value, "")),
             returnData: ""
         });
 
-        swapper.payback{value: 1 ether}();
+        swapper.payback{value: value}();
         swapper.flash(quoteParams, "");
 
         assertEq(base._balanceOf(trader), traderBasePreBalance + 1 ether);
         assertEq(base._balanceOf(address(swapper)), swapperBasePreBalance - 1 ether);
         assertEq(base._balanceOf(beneficiary), beneficiaryBasePreBalance);
 
-        assertEq(quote._balanceOf(trader), traderQuotePreBalance - 1 ether);
+        assertEq(quote._balanceOf(trader), traderQuotePreBalance - value);
         assertEq(quote._balanceOf(address(swapper)), 0);
-        assertEq(quote._balanceOf(beneficiary), beneficiaryQuotePreBalance + swapperQuotePreBalance + 1 ether);
+        assertEq(quote._balanceOf(beneficiary), beneficiaryQuotePreBalance + swapperQuotePreBalance + value);
     }
 
     function test_flash_mockERC20ToETH_emitsFlash() public unpaused {
         vm.startPrank(trader);
 
+        uint256 value = 1 ether * uint256(defaultScaledOfferFactor) / PERCENTAGE_SCALE;
+
         vm.mockCall({
             callee: trader,
             msgValue: 0,
-            data: abi.encodeCall(ISwapperFlashCallback.swapperFlashCallback, (quote, 1 ether, "")),
+            data: abi.encodeCall(ISwapperFlashCallback.swapperFlashCallback, (quote, value, "")),
             returnData: ""
         });
 
-        swapper.payback{value: 1 ether}();
+        swapper.payback{value: value}();
+        mockQuoteAmounts[0] = value;
 
         _expectEmit();
         emit Flash({
@@ -363,9 +544,13 @@ contract SwapperImplTest is BaseTest {
     }
 
     function test_flash_ethToMockERC20() public unpaused {
-        initParams.tokenToBeneficiary = mockERC20;
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        uint256 value = 1 ether * uint256(defaultScaledOfferFactor) / PERCENTAGE_SCALE;
+
+        initSwapperParams.tokenToBeneficiary = mockERC20;
         vm.prank(address(swapperFactory));
-        swapper.initializer(initParams);
+        swapper.initializer(initSwapperParams);
 
         vm.startPrank(trader);
 
@@ -382,12 +567,12 @@ contract SwapperImplTest is BaseTest {
         swapperQuotePreBalance = quote._balanceOf(address(swapper));
         beneficiaryQuotePreBalance = quote._balanceOf(beneficiary);
 
-        MockERC20(mockERC20).approve(address(swapper), 1 ether);
+        MockERC20(mockERC20).approve(address(swapper), value);
 
         vm.mockCall({
             callee: trader,
             msgValue: 0,
-            data: abi.encodeCall(ISwapperFlashCallback.swapperFlashCallback, (quote, 1 ether, "")),
+            data: abi.encodeCall(ISwapperFlashCallback.swapperFlashCallback, (quote, value, "")),
             returnData: ""
         });
 
@@ -397,15 +582,19 @@ contract SwapperImplTest is BaseTest {
         assertEq(base._balanceOf(address(swapper)), swapperBasePreBalance - 1 ether);
         assertEq(base._balanceOf(beneficiary), beneficiaryBasePreBalance);
 
-        assertEq(quote._balanceOf(trader), traderQuotePreBalance - 1 ether);
+        assertEq(quote._balanceOf(trader), traderQuotePreBalance - value);
         assertEq(quote._balanceOf(address(swapper)), 0);
-        assertEq(quote._balanceOf(beneficiary), beneficiaryQuotePreBalance + swapperQuotePreBalance + 1 ether);
+        assertEq(quote._balanceOf(beneficiary), beneficiaryQuotePreBalance + swapperQuotePreBalance + value);
     }
 
     function test_flash_ethToMockERC20_emitsFlash() public unpaused {
-        initParams.tokenToBeneficiary = mockERC20;
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        uint256 value = 1 ether * uint256(defaultScaledOfferFactor) / PERCENTAGE_SCALE;
+
+        initSwapperParams.tokenToBeneficiary = mockERC20;
         vm.prank(address(swapperFactory));
-        swapper.initializer(initParams);
+        swapper.initializer(initSwapperParams);
 
         vm.startPrank(trader);
 
@@ -416,15 +605,16 @@ contract SwapperImplTest is BaseTest {
 
         swapperQuotePreBalance = quote._balanceOf(address(swapper));
 
-        MockERC20(mockERC20).approve(address(swapper), 1 ether);
+        MockERC20(mockERC20).approve(address(swapper), value);
 
         vm.mockCall({
             callee: trader,
             msgValue: 0,
-            data: abi.encodeCall(ISwapperFlashCallback.swapperFlashCallback, (quote, 1 ether, "")),
+            data: abi.encodeCall(ISwapperFlashCallback.swapperFlashCallback, (quote, value, "")),
             returnData: ""
         });
 
+        mockQuoteAmounts[0] = value;
         _expectEmit();
         emit Flash({
             trader: trader,
@@ -532,6 +722,107 @@ contract SwapperImplTest is BaseTest {
     /// -----------------------------------------------------------------------
     /// tests - fuzz
     /// -----------------------------------------------------------------------
+
+    /// -----------------------------------------------------------------------
+    /// tests - fuzz - setDefaultScaledOfferFactor
+    /// -----------------------------------------------------------------------
+
+    function testFuzz_revertWhen_callerNotOwner_setDefaultScaledOfferFactor(
+        address notOwner_,
+        uint32 newDefaultScaledOfferFactor_
+    ) public {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.assume(notOwner_ != initSwapperParams.owner);
+        vm.prank(notOwner_);
+        vm.expectRevert(Unauthorized.selector);
+        swapper.setDefaultScaledOfferFactor(newDefaultScaledOfferFactor_);
+    }
+
+    function testFuzz_setDefaultScaledOfferFactor_setsDefaultScaledOfferFactor(uint32 newDefaultScaledOfferFactor_)
+        public
+        callerOwner
+    {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
+        swapper.setDefaultScaledOfferFactor(newDefaultScaledOfferFactor_);
+        assertEq(swapper.defaultScaledOfferFactor(), newDefaultScaledOfferFactor_);
+    }
+
+    function testFuzz_setDefaultScaledOfferFactor_emitsSetDefaultScaledOfferFactor(
+        uint32 newDefaultScaledOfferFactor_
+    ) public callerOwner {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
+        vm.expectEmit();
+        emit SetDefaultScaledOfferFactor(newDefaultScaledOfferFactor_);
+        swapper.setDefaultScaledOfferFactor(newDefaultScaledOfferFactor_);
+    }
+
+    /// -----------------------------------------------------------------------
+    /// tests - fuzz - setPairOverrides
+    /// -----------------------------------------------------------------------
+
+    function testFuzz_revertWhen_callerNotOwner_setPairOverrides(
+        address notOwner_,
+        SwapperImpl.SetPairOverrideParams[] memory newSetPairOverrides_
+    ) public {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.assume(notOwner_ != initSwapperParams.owner);
+        vm.prank(notOwner_);
+        vm.expectRevert(Unauthorized.selector);
+        swapper.setPairOverrides(newSetPairOverrides_);
+    }
+
+    // TODO: upgrade to test array; need to prune converted duplicates
+    function testFuzz_setPairOverrides_setsPairOverrides(
+        SwapperImpl.SetPairOverrideParams memory newSetPairOverrides_
+    ) public callerOwner {
+        uint256 length = 1;
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+        SwapperImpl.SetPairOverrideParams[] memory newSetPairOverrides = new SwapperImpl.SetPairOverrideParams[](1);
+        newSetPairOverrides[0] = newSetPairOverrides_;
+
+        vm.prank(initSwapperParams.owner);
+        swapper.setPairOverrides(newSetPairOverrides);
+
+        QuotePair[] memory quotePairs = new QuotePair[](length);
+        SwapperImpl.PairOverride[] memory newPairOverrides = new SwapperImpl.PairOverride[](length);
+        for (uint256 i; i < length; i++) {
+            quotePairs[i] = newSetPairOverrides[i].quotePair;
+            newPairOverrides[i] = newSetPairOverrides[i].pairOverride;
+        }
+        assertEq(swapper.getPairOverrides(quotePairs), newPairOverrides);
+    }
+
+    function testFuzz_setPairOverrides_emitsSetPairOverrides(
+        SwapperImpl.SetPairOverrideParams[] memory newSetPairOverrides_
+    ) public callerOwner {
+        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
+
+        vm.prank(initSwapperParams.owner);
+        vm.expectEmit();
+        emit SetPairOverrides(newSetPairOverrides_);
+        swapper.setPairOverrides(newSetPairOverrides_);
+    }
+
+    /// -----------------------------------------------------------------------
+    /// internal
+    /// -----------------------------------------------------------------------
+
+    function assertEq(SwapperImpl.PairOverride[] memory a, SwapperImpl.PairOverride[] memory b) internal {
+        assertEq(a.length, b.length);
+        for (uint256 i; i < a.length; i++) {
+            assertEq(a[i], b[i]);
+        }
+    }
+
+    function assertEq(SwapperImpl.PairOverride memory a, SwapperImpl.PairOverride memory b) internal {
+        assertEq(a.scaledOfferFactor, b.scaledOfferFactor);
+    }
 }
 
 contract SwapperImplHarness is SwapperImpl {
@@ -539,7 +830,7 @@ contract SwapperImplHarness is SwapperImpl {
         return $_payback;
     }
 
-    function exposed_transferToTrader(address tokenToBeneficiary_, IOracle.QuoteParams[] calldata quoteParams_)
+    function exposed_transferToTrader(address tokenToBeneficiary_, QuoteParams[] calldata quoteParams_)
         external
         returns (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary)
     {
