@@ -5,6 +5,7 @@ import {ERC20} from "solmate/tokens/ERC20.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
 import {IWETH9} from "splits-utils/interfaces/external/IWETH9.sol";
+import {QuoteParams} from "splits-utils/QuoteParams.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
 
@@ -26,7 +27,7 @@ contract UniV3Swap is ISwapperFlashCallback {
     error InsufficientFunds();
 
     struct InitFlashParams {
-        IOracle.QuoteParams[] quoteParams;
+        QuoteParams[] quoteParams;
         FlashCallbackData flashCallbackData;
     }
 

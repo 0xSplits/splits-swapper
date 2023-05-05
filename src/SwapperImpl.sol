@@ -4,6 +4,8 @@ pragma solidity ^0.8.17;
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {PausableImpl} from "splits-utils/PausableImpl.sol";
+import {QuotePair, SortedConvertedQuotePair} from "splits-utils/QuotePair.sol";
+import {QuoteParams} from "splits-utils/QuoteParams.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
@@ -48,6 +50,17 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         address beneficiary;
         address tokenToBeneficiary;
         IOracle oracle;
+        uint32 defaultScaledOfferFactor;
+        SetPairOverrideParams[] pairOverrides;
+    }
+
+    struct SetPairOverrideParams {
+        QuotePair quotePair;
+        PairOverride pairOverride;
+    }
+
+    struct PairOverride {
+        uint32 scaledOfferFactor;
     }
 
     /// -----------------------------------------------------------------------
@@ -57,12 +70,14 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     event SetBeneficiary(address beneficiary);
     event SetTokenToBeneficiary(address tokenToBeneficiary);
     event SetOracle(IOracle oracle);
+    event SetDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor);
+    event SetPairOverrides(SetPairOverrideParams[] params);
 
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
-        IOracle.QuoteParams[] quoteParams,
+        QuoteParams[] quoteParams,
         address tokenToBeneficiary,
         uint256[] amountsToBeneficiary,
         uint256 excessToBeneficiary
@@ -77,6 +92,9 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// -----------------------------------------------------------------------
 
     address public immutable swapperFactory;
+
+    /// @dev percentages measured in hundredths of basis points
+    uint32 internal constant PERCENTAGE_SCALE = 100_00_00; // = 100%
 
     /// -----------------------------------------------------------------------
     /// storage - mutables
@@ -102,18 +120,30 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     uint96 internal $_payback;
     /// 12 bytes
 
-    /// slot 2 - 12 bytes free
+    /// slot 2 - 8 bytes free
 
     /// token type to send beneficiary
     /// @dev 0x0 used for ETH
     address internal $tokenToBeneficiary;
     /// 20 bytes
 
+    /// default price scaling factor
+    /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100% = no discount or premium
+    /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
+    /// 4 bytes
+    uint32 internal $defaultScaledOfferFactor;
+
     /// slot 3 - 12 bytes free
 
     /// price oracle for flash
     IOracle internal $oracle;
     /// 20 bytes
+
+    /// slot 4 - 0 bytes free
+
+    /// overrides for specific quote pairs
+    /// 32 bytes
+    mapping(address => mapping(address => PairOverride)) internal $_pairOverrides;
 
     /// -----------------------------------------------------------------------
     /// constructor & initializer
@@ -133,6 +163,9 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         $beneficiary = params_.beneficiary;
         $tokenToBeneficiary = params_.tokenToBeneficiary;
         $oracle = params_.oracle;
+        $defaultScaledOfferFactor = params_.defaultScaledOfferFactor;
+
+        _setPairOverrides(params_.pairOverrides);
     }
 
     /// -----------------------------------------------------------------------
@@ -165,6 +198,18 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         emit SetOracle(oracle_);
     }
 
+    /// set defaultScaledOfferFactor
+    function setDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor_) external onlyOwner {
+        $defaultScaledOfferFactor = defaultScaledOfferFactor_;
+        emit SetDefaultScaledOfferFactor(defaultScaledOfferFactor_);
+    }
+
+    /// set pair overrides
+    function setPairOverrides(SetPairOverrideParams[] calldata params_) external onlyOwner {
+        _setPairOverrides(params_);
+        emit SetPairOverrides(params_);
+    }
+
     /// -----------------------------------------------------------------------
     /// functions - public & external - view
     /// -----------------------------------------------------------------------
@@ -179,6 +224,26 @@ contract SwapperImpl is WalletImpl, PausableImpl {
 
     function oracle() external view returns (IOracle) {
         return $oracle;
+    }
+
+    function defaultScaledOfferFactor() external view returns (uint32) {
+        return $defaultScaledOfferFactor;
+    }
+
+    /// get pair override for an array of quote pairs
+    function getPairOverrides(QuotePair[] calldata quotePairs_)
+        external
+        view
+        returns (PairOverride[] memory pairOverrides)
+    {
+        uint256 length = quotePairs_.length;
+        pairOverrides = new PairOverride[](length);
+        for (uint256 i; i < length;) {
+            pairOverrides[i] = _getPairOverride(quotePairs_[i]);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     /// -----------------------------------------------------------------------
@@ -200,11 +265,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     }
 
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(IOracle.QuoteParams[] calldata quoteParams_, bytes calldata callbackData_)
-        external
-        payable
-        pausable
-    {
+    function flash(QuoteParams[] calldata quoteParams_, bytes calldata callbackData_) external pausable {
         address _tokenToBeneficiary = $tokenToBeneficiary;
         (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary) =
             _transferToTrader(_tokenToBeneficiary, quoteParams_);
@@ -224,18 +285,20 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
-    function _transferToTrader(address tokenToBeneficiary_, IOracle.QuoteParams[] calldata quoteParams_)
+    function _transferToTrader(address tokenToBeneficiary_, QuoteParams[] calldata quoteParams_)
         internal
         returns (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary)
     {
-        amountsToBeneficiary = $oracle.getQuoteAmounts(quoteParams_);
+        uint256[] memory unscaledAmountsToBeneficiary = $oracle.getQuoteAmounts(quoteParams_);
         uint256 length = quoteParams_.length;
-        if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
+        if (unscaledAmountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
 
+        amountsToBeneficiary = new uint256[](length);
+        uint256 scaledAmountToBeneficiary;
         uint128 amountToTrader;
         address tokenToTrader;
         for (uint256 i; i < length;) {
-            IOracle.QuoteParams calldata qp = quoteParams_[i];
+            QuoteParams calldata qp = quoteParams_[i];
 
             if (tokenToBeneficiary_ != qp.quotePair.quote) revert Invalid_QuoteToken();
             tokenToTrader = qp.quotePair.base;
@@ -245,7 +308,14 @@ contract SwapperImpl is WalletImpl, PausableImpl {
                 revert InsufficientFunds_InContract();
             }
 
-            amountToBeneficiary += amountsToBeneficiary[i];
+            PairOverride memory po = _getPairOverride(_convertAndSortQuotePair(qp.quotePair));
+            if (po.scaledOfferFactor == 0) {
+                po.scaledOfferFactor = $defaultScaledOfferFactor;
+            }
+
+            scaledAmountToBeneficiary = unscaledAmountsToBeneficiary[i] * po.scaledOfferFactor / PERCENTAGE_SCALE;
+            amountsToBeneficiary[i] = scaledAmountToBeneficiary;
+            amountToBeneficiary += scaledAmountToBeneficiary;
             tokenToTrader._safeTransfer(msg.sender, amountToTrader);
 
             unchecked {
@@ -278,5 +348,48 @@ contract SwapperImpl is WalletImpl, PausableImpl {
                 tokenToBeneficiary_.safeTransfer(_beneficiary, excessToBeneficiary);
             }
         }
+    }
+
+    /// set pair overrides
+    function _setPairOverrides(SetPairOverrideParams[] calldata params_) internal {
+        uint256 length = params_.length;
+        for (uint256 i; i < length;) {
+            _setPairOverride(params_[i]);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /// set pair override
+    function _setPairOverride(SetPairOverrideParams calldata params_) internal {
+        SortedConvertedQuotePair memory scqp = _convertAndSortQuotePair(params_.quotePair);
+        $_pairOverrides[scqp.cToken0][scqp.cToken1] = params_.pairOverride;
+    }
+
+    /// get pair override
+    function _getPairOverride(QuotePair calldata quotePair_) internal view returns (PairOverride memory) {
+        return _getPairOverride(_convertAndSortQuotePair(quotePair_));
+    }
+
+    /// get pair overrides
+    function _getPairOverride(SortedConvertedQuotePair memory scqp_) internal view returns (PairOverride memory) {
+        return $_pairOverrides[scqp_.cToken0][scqp_.cToken1];
+    }
+
+    // TODO: should these be .. outside the contract? or in an inherited contract w a virtual _convertToken that's overridden?
+
+    /// convert & sort tokens into canonical order
+    function _convertAndSortQuotePair(QuotePair calldata quotePair_)
+        internal
+        view
+        returns (SortedConvertedQuotePair memory)
+    {
+        return quotePair_._convert(_convertToken)._sort();
+    }
+
+    /// no conversion needed for swapper
+    function _convertToken(address token_) internal pure returns (address) {
+        return token_;
     }
 }

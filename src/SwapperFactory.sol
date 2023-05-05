@@ -22,6 +22,8 @@ contract SwapperFactory {
         address beneficiary;
         address tokenToBeneficiary;
         OracleParams oracleParams;
+        uint32 defaultScaledOfferFactor;
+        SwapperImpl.SetPairOverrideParams[] pairOverrides;
     }
 
     SwapperImpl public immutable swapperImpl;
@@ -46,7 +48,9 @@ contract SwapperFactory {
             paused: params_.paused,
             beneficiary: params_.beneficiary,
             tokenToBeneficiary: params_.tokenToBeneficiary,
-            oracle: oracle
+            oracle: oracle,
+            defaultScaledOfferFactor: params_.defaultScaledOfferFactor,
+            pairOverrides: params_.pairOverrides
         });
         swapper.initializer(swapperInitParams);
         $isSwapper[swapper] = true;
