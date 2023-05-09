@@ -2,8 +2,9 @@
 pragma solidity ^0.8.17;
 
 import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
-import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
+import {IWETH9} from "splits-utils/interfaces/external/IWETH9.sol";
 import {LibClone} from "splits-utils/LibClone.sol";
+import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 
 import {SwapperImpl} from "./SwapperImpl.sol";
 
@@ -31,8 +32,8 @@ contract SwapperFactory {
     /// mapping of canonical swappers for flash callback validation
     mapping(SwapperImpl => bool) internal $isSwapper;
 
-    constructor() {
-        swapperImpl = new SwapperImpl();
+    constructor(IWETH9 weth9_) {
+        swapperImpl = new SwapperImpl(weth9_);
     }
 
     /// -----------------------------------------------------------------------

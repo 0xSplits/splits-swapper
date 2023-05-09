@@ -3,6 +3,7 @@ pragma solidity ^0.8.17;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
+import {IWETH9} from "splits-utils/interfaces/external/IWETH9.sol";
 import {PausableImpl} from "splits-utils/PausableImpl.sol";
 import {QuotePair, SortedConvertedQuotePair} from "splits-utils/QuotePair.sol";
 import {QuoteParams} from "splits-utils/QuoteParams.sol";
@@ -74,7 +75,6 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     event SetPairOverrides(SetPairOverrideParams[] params);
 
     event ReceiveETH(uint256 amount);
-    event Payback(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
         QuoteParams[] quoteParams,
@@ -91,6 +91,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// storage - constants & immutables
     /// -----------------------------------------------------------------------
 
+    IWETH9 public immutable weth9;
     address public immutable swapperFactory;
 
     /// @dev percentages measured in hundredths of basis points
@@ -110,15 +111,11 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// bool internal $paused;
     /// 1 byte
 
-    /// slot 1 - 0 bytes free
+    /// slot 1 - 12 bytes free
 
     /// address to receive post-swap tokens
     address internal $beneficiary;
     /// 20 bytes
-
-    /// used to track eth payback in flash
-    uint96 internal $_payback;
-    /// 12 bytes
 
     /// slot 2 - 8 bytes free
 
@@ -149,7 +146,8 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// constructor & initializer
     /// -----------------------------------------------------------------------
 
-    constructor() {
+    constructor(IWETH9 weth9_) {
+        weth9 = weth9_;
         swapperFactory = msg.sender;
     }
 
@@ -256,14 +254,6 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /*     emit ReceiveETH(msg.value); */
     /* } */
 
-    /// allows flash to track eth payback to beneficiary
-    /// @dev if used outside swapperFlashCallback, msg.sender may lose funds
-    /// accumulates until next flash call
-    function payback() external payable {
-        $_payback += msg.value.toUint96();
-        emit Payback(msg.sender, msg.value);
-    }
-
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
     function flash(QuoteParams[] calldata quoteParams_, bytes calldata callbackData_) external pausable {
         address _tokenToBeneficiary = $tokenToBeneficiary;
@@ -330,10 +320,8 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     {
         address _beneficiary = $beneficiary;
         if (tokenToBeneficiary_._isETH()) {
-            if ($_payback < amountToBeneficiary_) {
-                revert InsufficientFunds_FromTrader();
-            }
-            $_payback = 0;
+            address(weth9).safeTransferFrom(msg.sender, address(this), amountToBeneficiary_);
+            weth9.withdraw(weth9.balanceOf(address(this)));
 
             // send eth to beneficiary
             uint256 ethBalance = address(this).balance;

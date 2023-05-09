@@ -93,29 +93,15 @@ contract UniV3Swap is ISwapperFlashCallback {
 
         if (totalOut < amountToBeneficiary_) revert InsufficientFunds();
 
-        address excessRecipient = flashCallbackData.excessRecipient;
-        if (tokenToBeneficiary_._isETH()) {
-            // withdraw weth from uni swaps to eth
-            uint256 weth9Balance = weth9.balanceOf(address(this));
-            weth9.withdraw(weth9Balance);
+        if (tokenToBeneficiary_._isETH()) tokenToBeneficiary_ = address(weth9);
 
-            // send req'd amt to swapper#payback
-            swapper.payback{value: amountToBeneficiary_}();
+        // approve swapper to xfr req'd amt out
+        tokenToBeneficiary_.safeApprove(msg.sender, amountToBeneficiary_);
 
-            // xfr excess out
-            ethBalance = address(this).balance;
-            if (ethBalance != 0) {
-                excessRecipient.safeTransferETH(ethBalance);
-            }
-        } else {
-            // approve swapper to xfr req'd amt out
-            tokenToBeneficiary_.safeApprove(msg.sender, amountToBeneficiary_);
-
-            // xfr excess out
-            uint256 excessBalance = ERC20(tokenToBeneficiary_).balanceOf(address(this)) - amountToBeneficiary_;
-            if (excessBalance > 0) {
-                tokenToBeneficiary_.safeTransfer(excessRecipient, excessBalance);
-            }
+        // xfr excess out
+        uint256 excessBalance = ERC20(tokenToBeneficiary_).balanceOf(address(this)) - amountToBeneficiary_;
+        if (excessBalance > 0) {
+            tokenToBeneficiary_.safeTransfer(flashCallbackData.excessRecipient, excessBalance);
         }
     }
 

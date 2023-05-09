@@ -75,7 +75,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         oracleParams.oracle = oracle;
 
         // set swapper up
-        swapperFactory = new SwapperFactory();
+        swapperFactory = new SwapperFactory(IWETH9(WETH9));
         swapperImpl = swapperFactory.swapperImpl();
 
         // setup LibCloneBase
