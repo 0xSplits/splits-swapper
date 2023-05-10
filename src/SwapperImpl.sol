@@ -11,6 +11,7 @@ import {TokenUtils} from "splits-utils/TokenUtils.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
+import {PairScaledOfferFactors} from "./libraries/PairScaledOfferFactors.sol";
 
 /// @title Swapper Implementation
 /// @author 0xSplits
@@ -29,6 +30,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     using SafeTransferLib for address;
     using SafeCastLib for uint256;
     using TokenUtils for address;
+    using PairScaledOfferFactors for mapping(address => mapping(address => uint32));
 
     /// -----------------------------------------------------------------------
     /// errors
@@ -160,7 +162,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         $oracle = params_.oracle;
         $defaultScaledOfferFactor = params_.defaultScaledOfferFactor;
 
-        _setPairScaledOfferFactors(params_.pairScaledOfferFactors);
+        $_pairScaledOfferFactors._set(params_.pairScaledOfferFactors);
     }
 
     /// -----------------------------------------------------------------------
@@ -201,7 +203,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
 
     /// set pair scaled offer factors
     function setPairScaledOfferFactors(SetPairScaledOfferFactorParams[] calldata params_) external onlyOwner {
-        _setPairScaledOfferFactors(params_);
+        $_pairScaledOfferFactors._set(params_);
         emit SetPairScaledOfferFactors(params_);
     }
 
@@ -234,7 +236,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         uint256 length = quotePairs_.length;
         pairScaledOfferFactors = new uint32[](length);
         for (uint256 i; i < length;) {
-            pairScaledOfferFactors[i] = _getPairScaledOfferFactor(quotePairs_[i]);
+            pairScaledOfferFactors[i] = $_pairScaledOfferFactors._get(quotePairs_[i]);
             unchecked {
                 ++i;
             }
@@ -303,7 +305,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
                 revert InsufficientFunds_InContract();
             }
 
-            uint32 scaledOfferFactor = _getPairScaledOfferFactor(qp.quotePair._sort());
+            uint32 scaledOfferFactor = $_pairScaledOfferFactors._get(qp.quotePair._sort());
             if (scaledOfferFactor == 0) {
                 scaledOfferFactor = $defaultScaledOfferFactor;
             }
@@ -343,32 +345,5 @@ contract SwapperImpl is WalletImpl, PausableImpl {
                 tokenToBeneficiary_.safeTransfer(_beneficiary, excessToBeneficiary);
             }
         }
-    }
-
-    /// set pair scaled offer factors
-    function _setPairScaledOfferFactors(SetPairScaledOfferFactorParams[] calldata params_) internal {
-        uint256 length = params_.length;
-        for (uint256 i; i < length;) {
-            _setPairScaledOfferFactor(params_[i]);
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    /// set pair scaled offer factors
-    function _setPairScaledOfferFactor(SetPairScaledOfferFactorParams calldata params_) internal {
-        SortedQuotePair memory sqp = params_.quotePair._sort();
-        $_pairScaledOfferFactors[sqp.token0][sqp.token1] = params_.scaledOfferFactor;
-    }
-
-    /// get pair scaled offer factors
-    function _getPairScaledOfferFactor(QuotePair calldata quotePair_) internal view returns (uint32) {
-        return _getPairScaledOfferFactor(quotePair_._sort());
-    }
-
-    /// get pair scaled offer factors
-    function _getPairScaledOfferFactor(SortedQuotePair memory sqp_) internal view returns (uint32) {
-        return $_pairScaledOfferFactors[sqp_.token0][sqp_.token1];
     }
 }
