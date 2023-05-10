@@ -6,6 +6,7 @@ import {LibCloneBase} from "splits-tests/LibClone.t.sol";
 
 import {CreateOracleParams, IOracleFactory, IOracle, OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
+import {QuotePair} from "splits-utils/LibQuotes.sol";
 import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 
 import {SwapperFactory} from "../src/SwapperFactory.sol";
@@ -14,23 +15,42 @@ import {SwapperImpl} from "../src/SwapperImpl.sol";
 // TODO: add fuzz tests
 
 contract SwapperFactoryTest is BaseTest, LibCloneBase {
-    event CreateSwapper(SwapperImpl indexed swapper, SwapperImpl.InitParams params);
+    event CreateSwapper(SwapperImpl indexed swapper, SwapperImpl.InitParams initSwapperParams);
 
     SwapperFactory swapperFactory;
     SwapperImpl swapperImpl;
 
-    SwapperFactory.CreateSwapperParams params;
-    SwapperImpl.InitParams swapperInitParams;
+    address beneficiary;
+    address owner;
+    bool paused;
+    address tokenToBeneficiary;
+    uint32 defaultScaledOfferFactor;
+    SwapperImpl.SetPairScaledOfferFactorParams[] pairScaledOfferFactors;
 
     UniV3OracleFactory oracleFactory;
 
-    UniV3OracleImpl.SetPairOverrideParams[] pairOverrides;
+    uint24 defaultFee;
+    uint32 defaultPeriod;
+    UniV3OracleImpl.SetPairOverrideParams[] oraclePairOverrides;
     CreateOracleParams createOracleParams;
     OracleParams oracleParams;
     IOracle oracle;
 
     function setUp() public virtual override(BaseTest, LibCloneBase) {
         BaseTest.setUp();
+
+        owner = users.alice;
+        beneficiary = users.bob;
+        paused = false;
+        tokenToBeneficiary = ETH_ADDRESS;
+        defaultScaledOfferFactor = 99_00_00;
+
+        pairScaledOfferFactors.push(
+            SwapperImpl.SetPairScaledOfferFactorParams({
+                quotePair: QuotePair({base: WETH9, quote: ETH_ADDRESS}),
+                scaledOfferFactor: PERCENTAGE_SCALE // no discount
+            })
+        );
 
         // set oracle up
         oracleFactory = new UniV3OracleFactory({
@@ -39,6 +59,9 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         });
 
         // TODO: add pair override?
+
+        defaultFee = 30_00; // = 0.3%
+        defaultPeriod = 30 minutes;
 
         UniV3OracleImpl.InitParams memory initOracleParams = _initOracleParams();
 
@@ -53,27 +76,45 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         swapperFactory = new SwapperFactory();
         swapperImpl = swapperFactory.swapperImpl();
 
-        params = SwapperFactory.CreateSwapperParams({
-            owner: users.alice,
-            paused: false,
-            beneficiary: users.bob,
-            tokenToBeneficiary: ETH_ADDRESS,
-            oracleParams: oracleParams
-        });
-
-        swapperInitParams = SwapperImpl.InitParams({
-            owner: users.alice,
-            paused: false,
-            beneficiary: users.bob,
-            tokenToBeneficiary: ETH_ADDRESS,
-            oracle: oracle
-        });
-
         // setup LibCloneBase
         impl = address(swapperImpl);
-        clone = address(swapperFactory.createSwapper(params));
+        clone = address(swapperFactory.createSwapper(_createSwapperParams()));
         amount = 1 ether;
         data = "Hello, World!";
+    }
+
+    function _createSwapperParams() internal view returns (SwapperFactory.CreateSwapperParams memory) {
+        return SwapperFactory.CreateSwapperParams({
+            owner: owner,
+            paused: paused,
+            beneficiary: beneficiary,
+            tokenToBeneficiary: tokenToBeneficiary,
+            oracleParams: oracleParams,
+            defaultScaledOfferFactor: defaultScaledOfferFactor,
+            pairScaledOfferFactors: pairScaledOfferFactors
+        });
+    }
+
+    function _initSwapperParams() internal view returns (SwapperImpl.InitParams memory) {
+        return SwapperImpl.InitParams({
+            owner: owner,
+            paused: paused,
+            beneficiary: beneficiary,
+            tokenToBeneficiary: tokenToBeneficiary,
+            oracle: oracle,
+            defaultScaledOfferFactor: defaultScaledOfferFactor,
+            pairScaledOfferFactors: pairScaledOfferFactors
+        });
+    }
+
+    function _initOracleParams() internal view returns (UniV3OracleImpl.InitParams memory) {
+        return UniV3OracleImpl.InitParams({
+            owner: owner,
+            paused: paused,
+            defaultFee: defaultFee,
+            defaultPeriod: defaultPeriod,
+            pairOverrides: oraclePairOverrides
+        });
     }
 
     /// -----------------------------------------------------------------------
@@ -84,121 +125,95 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         vm.expectCall({
             callee: address(swapperImpl),
             msgValue: 0 ether,
-            data: abi.encodeCall(
-                SwapperImpl.initializer,
-                (
-                    SwapperImpl.InitParams({
-                        owner: users.alice,
-                        paused: false,
-                        beneficiary: users.bob,
-                        tokenToBeneficiary: ETH_ADDRESS,
-                        oracle: oracle
-                    })
-                )
-                )
+            data: abi.encodeCall(SwapperImpl.initializer, (_initSwapperParams()))
         });
-        swapperFactory.createSwapper(params);
+        swapperFactory.createSwapper(_createSwapperParams());
     }
 
     function test_createSwapper_emitsCreateSwapper() public {
         SwapperImpl expectedSwapper = SwapperImpl(_predictNextAddressFrom(address(swapperFactory)));
         _expectEmit();
-        emit CreateSwapper(expectedSwapper, swapperInitParams);
-        swapperFactory.createSwapper(params);
+        emit CreateSwapper(expectedSwapper, _initSwapperParams());
+        swapperFactory.createSwapper(_createSwapperParams());
     }
 
     function test_createSwapper_createsOracleIfNotProvidedOne() public {
-        params.oracleParams.oracle = IOracle(ADDRESS_ZERO);
+        SwapperFactory.CreateSwapperParams memory createSwapperParams = _createSwapperParams();
+
+        createSwapperParams.oracleParams.oracle = IOracle(ADDRESS_ZERO);
         vm.expectCall({
             callee: address(oracleFactory),
             msgValue: 0 ether,
             data: abi.encodeCall(IOracleFactory.createOracle, abi.encode(_initOracleParams()))
         });
-        swapperFactory.createSwapper(params);
+        swapperFactory.createSwapper(createSwapperParams);
     }
 
     function testFuzz_createSwapper_createsClone_code(
-        SwapperFactory.CreateSwapperParams calldata params_,
+        SwapperFactory.CreateSwapperParams calldata createSwapperParams_,
         address newOracle_
     ) public {
         vm.mockCall({
-            callee: address(params_.oracleParams.createOracleParams.factory),
+            callee: address(createSwapperParams_.oracleParams.createOracleParams.factory),
             msgValue: 0,
-            data: abi.encodeCall(IOracleFactory.createOracle, (params_.oracleParams.createOracleParams.data)),
+            data: abi.encodeCall(IOracleFactory.createOracle, (createSwapperParams_.oracleParams.createOracleParams.data)),
             returnData: abi.encode(newOracle_)
         });
-        clone = address(swapperFactory.createSwapper(params_));
+        clone = address(swapperFactory.createSwapper(createSwapperParams_));
 
         test_clone_code();
     }
 
     function testFuzz_createSwapper_createsClone_canReceiveETH(
-        SwapperFactory.CreateSwapperParams calldata params_,
+        SwapperFactory.CreateSwapperParams calldata createSwapperParams_,
         address newOracle_,
         uint96 amount_
     ) public {
         vm.mockCall({
-            callee: address(params_.oracleParams.createOracleParams.factory),
+            callee: address(createSwapperParams_.oracleParams.createOracleParams.factory),
             msgValue: 0,
-            data: abi.encodeCall(IOracleFactory.createOracle, (params_.oracleParams.createOracleParams.data)),
+            data: abi.encodeCall(IOracleFactory.createOracle, (createSwapperParams_.oracleParams.createOracleParams.data)),
             returnData: abi.encode(newOracle_)
         });
-        clone = address(swapperFactory.createSwapper(params_));
+        clone = address(swapperFactory.createSwapper(createSwapperParams_));
         amount = amount_;
 
         test_clone_canReceiveETH();
     }
 
     function testFuzz_createSwapper_createsClone_emitsReceiveETH(
-        SwapperFactory.CreateSwapperParams calldata params_,
+        SwapperFactory.CreateSwapperParams calldata createSwapperParams_,
         address newOracle_,
         uint96 amount_
     ) public {
         vm.mockCall({
-            callee: address(params_.oracleParams.createOracleParams.factory),
+            callee: address(createSwapperParams_.oracleParams.createOracleParams.factory),
             msgValue: 0,
-            data: abi.encodeCall(IOracleFactory.createOracle, (params_.oracleParams.createOracleParams.data)),
+            data: abi.encodeCall(IOracleFactory.createOracle, (createSwapperParams_.oracleParams.createOracleParams.data)),
             returnData: abi.encode(newOracle_)
         });
-        clone = address(swapperFactory.createSwapper(params_));
+        clone = address(swapperFactory.createSwapper(createSwapperParams_));
         amount = amount_;
 
         test_clone_emitsReceiveETH();
     }
 
     function testFuzz_createSwapper_createsClone_canDelegateCall(
-        SwapperFactory.CreateSwapperParams calldata params_,
+        SwapperFactory.CreateSwapperParams calldata createSwapperParams_,
         address newOracle_,
         bytes calldata data_
     ) public {
         vm.assume(data_.length > 0);
 
         vm.mockCall({
-            callee: address(params_.oracleParams.createOracleParams.factory),
+            callee: address(createSwapperParams_.oracleParams.createOracleParams.factory),
             msgValue: 0,
-            data: abi.encodeCall(IOracleFactory.createOracle, (params_.oracleParams.createOracleParams.data)),
+            data: abi.encodeCall(IOracleFactory.createOracle, (createSwapperParams_.oracleParams.createOracleParams.data)),
             returnData: abi.encode(newOracle_)
         });
-        clone = address(swapperFactory.createSwapper(params_));
+        clone = address(swapperFactory.createSwapper(createSwapperParams_));
         data = data_;
 
         test_clone_canDelegateCall();
-    }
-
-    /// -----------------------------------------------------------------------
-    /// internal
-    /// -----------------------------------------------------------------------
-
-    /// @dev can't be init'd in setUp & saved to storage bc of nested dynamic array solc error
-    /// UnimplementedFeatureError: Copying of type struct UniV3OracleImpl.SetPairOverrideParams memory[] memory to storage not yet supported.
-    function _initOracleParams() internal view returns (UniV3OracleImpl.InitParams memory) {
-        return UniV3OracleImpl.InitParams({
-            owner: users.alice,
-            paused: false,
-            defaultFee: 30_00, // = 0.3%
-            defaultPeriod: 30 minutes,
-            defaultScaledOfferFactor: PERCENTAGE_SCALE,
-            pairOverrides: pairOverrides
-        });
     }
 }

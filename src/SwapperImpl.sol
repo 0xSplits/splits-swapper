@@ -4,12 +4,14 @@ pragma solidity ^0.8.17;
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {PausableImpl} from "splits-utils/PausableImpl.sol";
+import {QuotePair, QuoteParams, SortedQuotePair} from "splits-utils/LibQuotes.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
 import {WalletImpl} from "splits-utils/WalletImpl.sol";
 
 import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
+import {PairScaledOfferFactors} from "./libraries/PairScaledOfferFactors.sol";
 
 /// @title Swapper Implementation
 /// @author 0xSplits
@@ -17,8 +19,8 @@ import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
 /// onchain revenue into a single token
 /// Please be aware, owner has _FULL CONTROL_ of the deployment.
 /// @dev This contract uses a modular oracle. Be very careful to use a secure
-/// oracle with sensible defaults & overrides for desired behavior. Otherwise
-/// may result in catastrophic loss of funds.
+/// oracle with sensible settings for the desired behavior. Insecure oracles
+/// will  result in catastrophic loss of funds.
 /// This contract uses token = address(0) to refer to ETH.
 contract SwapperImpl is WalletImpl, PausableImpl {
     /// -----------------------------------------------------------------------
@@ -28,6 +30,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     using SafeTransferLib for address;
     using SafeCastLib for uint256;
     using TokenUtils for address;
+    using PairScaledOfferFactors for mapping(address => mapping(address => uint32));
 
     /// -----------------------------------------------------------------------
     /// errors
@@ -48,6 +51,13 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         address beneficiary;
         address tokenToBeneficiary;
         IOracle oracle;
+        uint32 defaultScaledOfferFactor;
+        SetPairScaledOfferFactorParams[] pairScaledOfferFactors;
+    }
+
+    struct SetPairScaledOfferFactorParams {
+        QuotePair quotePair;
+        uint32 scaledOfferFactor;
     }
 
     /// -----------------------------------------------------------------------
@@ -57,12 +67,14 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     event SetBeneficiary(address beneficiary);
     event SetTokenToBeneficiary(address tokenToBeneficiary);
     event SetOracle(IOracle oracle);
+    event SetDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor);
+    event SetPairScaledOfferFactors(SetPairScaledOfferFactorParams[] params);
 
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
     event Flash(
         address indexed trader,
-        IOracle.QuoteParams[] quoteParams,
+        QuoteParams[] quoteParams,
         address tokenToBeneficiary,
         uint256[] amountsToBeneficiary,
         uint256 excessToBeneficiary
@@ -77,6 +89,9 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// -----------------------------------------------------------------------
 
     address public immutable swapperFactory;
+
+    /// @dev percentages measured in hundredths of basis points
+    uint32 internal constant PERCENTAGE_SCALE = 100_00_00; // = 100%
 
     /// -----------------------------------------------------------------------
     /// storage - mutables
@@ -102,18 +117,30 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     uint96 internal $_payback;
     /// 12 bytes
 
-    /// slot 2 - 12 bytes free
+    /// slot 2 - 8 bytes free
 
     /// token type to send beneficiary
     /// @dev 0x0 used for ETH
     address internal $tokenToBeneficiary;
     /// 20 bytes
 
+    /// default price scaling factor
+    /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100% = no discount or premium
+    /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
+    /// 4 bytes
+    uint32 internal $defaultScaledOfferFactor;
+
     /// slot 3 - 12 bytes free
 
     /// price oracle for flash
     IOracle internal $oracle;
     /// 20 bytes
+
+    /// slot 4 - 0 bytes free
+
+    /// scaledOfferFactors for specific quote pairs
+    /// 32 bytes
+    mapping(address => mapping(address => uint32)) internal $_pairScaledOfferFactors;
 
     /// -----------------------------------------------------------------------
     /// constructor & initializer
@@ -133,6 +160,9 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         $beneficiary = params_.beneficiary;
         $tokenToBeneficiary = params_.tokenToBeneficiary;
         $oracle = params_.oracle;
+        $defaultScaledOfferFactor = params_.defaultScaledOfferFactor;
+
+        $_pairScaledOfferFactors._set(params_.pairScaledOfferFactors);
     }
 
     /// -----------------------------------------------------------------------
@@ -165,6 +195,18 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         emit SetOracle(oracle_);
     }
 
+    /// set defaultScaledOfferFactor
+    function setDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor_) external onlyOwner {
+        $defaultScaledOfferFactor = defaultScaledOfferFactor_;
+        emit SetDefaultScaledOfferFactor(defaultScaledOfferFactor_);
+    }
+
+    /// set pair scaled offer factors
+    function setPairScaledOfferFactors(SetPairScaledOfferFactorParams[] calldata params_) external onlyOwner {
+        $_pairScaledOfferFactors._set(params_);
+        emit SetPairScaledOfferFactors(params_);
+    }
+
     /// -----------------------------------------------------------------------
     /// functions - public & external - view
     /// -----------------------------------------------------------------------
@@ -179,6 +221,26 @@ contract SwapperImpl is WalletImpl, PausableImpl {
 
     function oracle() external view returns (IOracle) {
         return $oracle;
+    }
+
+    function defaultScaledOfferFactor() external view returns (uint32) {
+        return $defaultScaledOfferFactor;
+    }
+
+    /// get pair scaled offer factors for an array of quote pairs
+    function getPairScaledOfferFactors(QuotePair[] calldata quotePairs_)
+        external
+        view
+        returns (uint32[] memory pairScaledOfferFactors)
+    {
+        uint256 length = quotePairs_.length;
+        pairScaledOfferFactors = new uint32[](length);
+        for (uint256 i; i < length;) {
+            pairScaledOfferFactors[i] = $_pairScaledOfferFactors._get(quotePairs_[i]);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     /// -----------------------------------------------------------------------
@@ -200,11 +262,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     }
 
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(IOracle.QuoteParams[] calldata quoteParams_, bytes calldata callbackData_)
-        external
-        payable
-        pausable
-    {
+    function flash(QuoteParams[] calldata quoteParams_, bytes calldata callbackData_) external pausable {
         address _tokenToBeneficiary = $tokenToBeneficiary;
         (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary) =
             _transferToTrader(_tokenToBeneficiary, quoteParams_);
@@ -224,18 +282,20 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /// functions - private & internal
     /// -----------------------------------------------------------------------
 
-    function _transferToTrader(address tokenToBeneficiary_, IOracle.QuoteParams[] calldata quoteParams_)
+    function _transferToTrader(address tokenToBeneficiary_, QuoteParams[] calldata quoteParams_)
         internal
         returns (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary)
     {
-        amountsToBeneficiary = $oracle.getQuoteAmounts(quoteParams_);
+        uint256[] memory unscaledAmountsToBeneficiary = $oracle.getQuoteAmounts(quoteParams_);
         uint256 length = quoteParams_.length;
-        if (amountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
+        if (unscaledAmountsToBeneficiary.length != length) revert Invalid_AmountsToBeneficiary();
 
+        amountsToBeneficiary = new uint256[](length);
+        uint256 scaledAmountToBeneficiary;
         uint128 amountToTrader;
         address tokenToTrader;
         for (uint256 i; i < length;) {
-            IOracle.QuoteParams calldata qp = quoteParams_[i];
+            QuoteParams calldata qp = quoteParams_[i];
 
             if (tokenToBeneficiary_ != qp.quotePair.quote) revert Invalid_QuoteToken();
             tokenToTrader = qp.quotePair.base;
@@ -245,7 +305,14 @@ contract SwapperImpl is WalletImpl, PausableImpl {
                 revert InsufficientFunds_InContract();
             }
 
-            amountToBeneficiary += amountsToBeneficiary[i];
+            uint32 scaledOfferFactor = $_pairScaledOfferFactors._get(qp.quotePair._sort());
+            if (scaledOfferFactor == 0) {
+                scaledOfferFactor = $defaultScaledOfferFactor;
+            }
+
+            scaledAmountToBeneficiary = unscaledAmountsToBeneficiary[i] * scaledOfferFactor / PERCENTAGE_SCALE;
+            amountsToBeneficiary[i] = scaledAmountToBeneficiary;
+            amountToBeneficiary += scaledAmountToBeneficiary;
             tokenToTrader._safeTransfer(msg.sender, amountToTrader);
 
             unchecked {
