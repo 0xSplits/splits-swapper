@@ -10,7 +10,6 @@
 [submodule "lib/splits-oracle"]
 	path = lib/splits-oracle
 	url = https://github.com/0xSplits/splits-oracle
-	branch = move-discount-to-swapper
 [submodule "lib/v3-periphery"]
 	path = lib/v3-periphery
 	url = https://github.com/Uniswap/v3-periphery
@@ -18,4 +17,3 @@
 [submodule "lib/splits-utils"]
 	path = lib/splits-utils
 	url = https://github.com/0xsplits/splits-utils
-	branch = move-discount-to-swapper
