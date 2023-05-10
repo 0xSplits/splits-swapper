@@ -26,9 +26,6 @@ contract SwapperFactory {
 
     SwapperImpl public immutable swapperImpl;
 
-    /// mapping of canonical swappers for flash callback validation
-    mapping(SwapperImpl => bool) internal $isSwapper;
-
     constructor() {
         swapperImpl = new SwapperImpl();
     }
@@ -49,16 +46,7 @@ contract SwapperFactory {
             oracle: oracle
         });
         swapper.initializer(swapperInitParams);
-        $isSwapper[swapper] = true;
 
         emit CreateSwapper({swapper: swapper, params: swapperInitParams});
-    }
-
-    /// -----------------------------------------------------------------------
-    /// functions - public & external - view
-    /// -----------------------------------------------------------------------
-
-    function isSwapper(SwapperImpl swapper) external view returns (bool) {
-        return $isSwapper[swapper];
     }
 }
