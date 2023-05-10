@@ -6,15 +6,14 @@ import "splits-tests/Base.t.sol";
 import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
-import {QuotePair} from "splits-utils/QuotePair.sol";
-import {QuoteParams} from "splits-utils/QuoteParams.sol";
+import {QuotePair, QuoteParams} from "splits-utils/LibQuotes.sol";
 import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 
 import {ISwapperFlashCallback} from "../src/interfaces/ISwapperFlashCallback.sol";
 import {SwapperFactory} from "../src/SwapperFactory.sol";
 import {SwapperImpl} from "../src/SwapperImpl.sol";
 
-// TODO: add flash test for scaling override ?
+// TODO: add test for scaling override ?
 // TODO: add flash test for weth-weth
 // TODO: add flash test for eth-weth
 // TODO: add flash test for eth-eth
@@ -37,7 +36,7 @@ contract SwapperImplTest is BaseTest {
     event SetTokenToBeneficiary(address tokenToBeneficiaryd);
     event SetOracle(IOracle oracle);
     event SetDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor);
-    event SetPairOverrides(SwapperImpl.SetPairOverrideParams[] params);
+    event SetPairScaledOfferFactors(SwapperImpl.SetPairScaledOfferFactorParams[] params);
 
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
@@ -74,7 +73,7 @@ contract SwapperImplTest is BaseTest {
     bool paused;
     address tokenToBeneficiary;
     uint32 defaultScaledOfferFactor;
-    SwapperImpl.SetPairOverrideParams[] pairOverrides;
+    SwapperImpl.SetPairScaledOfferFactorParams[] setPairScaledOfferFactorParams;
 
     QuoteParams[] quoteParams;
     QuoteParams qp;
@@ -115,12 +114,10 @@ contract SwapperImplTest is BaseTest {
         wethETH = QuotePair({base: WETH9, quote: ETH_ADDRESS});
         usdcETH = QuotePair({base: USDC, quote: ETH_ADDRESS});
 
-        pairOverrides.push(
-            SwapperImpl.SetPairOverrideParams({
+        setPairScaledOfferFactorParams.push(
+            SwapperImpl.SetPairScaledOfferFactorParams({
                 quotePair: wethETH,
-                pairOverride: SwapperImpl.PairOverride({
-                    scaledOfferFactor: PERCENTAGE_SCALE // no discount
-                })
+                scaledOfferFactor: PERCENTAGE_SCALE // no discount
             })
         );
 
@@ -186,7 +183,7 @@ contract SwapperImplTest is BaseTest {
             tokenToBeneficiary: tokenToBeneficiary,
             oracle: oracle,
             defaultScaledOfferFactor: defaultScaledOfferFactor,
-            pairOverrides: pairOverrides
+            pairScaledOfferFactors: setPairScaledOfferFactorParams
         });
     }
 
@@ -198,7 +195,7 @@ contract SwapperImplTest is BaseTest {
             tokenToBeneficiary: tokenToBeneficiary,
             oracleParams: oracleParams,
             defaultScaledOfferFactor: defaultScaledOfferFactor,
-            pairOverrides: pairOverrides
+            pairScaledOfferFactors: setPairScaledOfferFactorParams
         });
     }
 
@@ -276,20 +273,20 @@ contract SwapperImplTest is BaseTest {
         assertEq(swapper.defaultScaledOfferFactor(), initSwapperParams.defaultScaledOfferFactor);
     }
 
-    function test_initializer_setsPairOverrides() public callerFactory {
+    function test_initializer_setsPairScaledOfferFactors() public callerFactory {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
 
         vm.prank(address(swapperFactory));
         swapper.initializer(initSwapperParams);
 
-        uint256 length = initSwapperParams.pairOverrides.length;
+        uint256 length = initSwapperParams.pairScaledOfferFactors.length;
         QuotePair[] memory initQuotePairs = new QuotePair[](length);
-        SwapperImpl.PairOverride[] memory initPairOverrides = new SwapperImpl.PairOverride[](length);
+        uint32[] memory initScaledOfferFactors = new uint32[](length);
         for (uint256 i; i < length; i++) {
-            initQuotePairs[i] = initSwapperParams.pairOverrides[i].quotePair;
-            initPairOverrides[i] = initSwapperParams.pairOverrides[i].pairOverride;
+            initQuotePairs[i] = initSwapperParams.pairScaledOfferFactors[i].quotePair;
+            initScaledOfferFactors[i] = initSwapperParams.pairScaledOfferFactors[i].scaledOfferFactor;
         }
-        assertEq(swapper.getPairOverrides(initQuotePairs), initPairOverrides);
+        assertEq(swapper.getPairScaledOfferFactors(initQuotePairs), initScaledOfferFactors);
     }
 
     function test_initializer_emitsOwnershipTransferred() public callerFactory {
@@ -409,59 +406,55 @@ contract SwapperImplTest is BaseTest {
     }
 
     /// -----------------------------------------------------------------------
-    /// tests - basic - setPairOverrides
+    /// tests - basic - setPairScaledOfferFactors
     /// -----------------------------------------------------------------------
 
-    function test_revertWhen_callerNotOwner_setPairOverrides() public {
+    function test_revertWhen_callerNotOwner_setPairScaledOfferFactors() public {
         vm.expectRevert(Unauthorized.selector);
-        swapper.setPairOverrides(pairOverrides);
+        swapper.setPairScaledOfferFactors(setPairScaledOfferFactorParams);
     }
 
-    function test_setPairOverrides_setsPairOverrides() public callerOwner {
+    function test_setPairScaledOfferFactors_setsPairScaledOfferFactors() public callerOwner {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
 
-        delete pairOverrides;
-        pairOverrides.push(SwapperImpl.SetPairOverrideParams({
-                quotePair: wethETH,
-                pairOverride: SwapperImpl.PairOverride({scaledOfferFactor: 0})
-                }));
-        pairOverrides.push(SwapperImpl.SetPairOverrideParams({
-                quotePair: usdcETH,
-                pairOverride: SwapperImpl.PairOverride({scaledOfferFactor: 98_00_00})
-                }));
-        uint256 length = pairOverrides.length;
+        delete setPairScaledOfferFactorParams;
+        setPairScaledOfferFactorParams.push(
+            SwapperImpl.SetPairScaledOfferFactorParams({quotePair: wethETH, scaledOfferFactor: 0})
+        );
+        setPairScaledOfferFactorParams.push(
+            SwapperImpl.SetPairScaledOfferFactorParams({quotePair: usdcETH, scaledOfferFactor: 98_00_00})
+        );
+        uint256 length = setPairScaledOfferFactorParams.length;
 
         vm.prank(initSwapperParams.owner);
-        swapper.setPairOverrides(pairOverrides);
+        swapper.setPairScaledOfferFactors(setPairScaledOfferFactorParams);
 
         QuotePair[] memory quotePairs = new QuotePair[](length);
-        SwapperImpl.PairOverride[] memory newPairOverrides = new SwapperImpl.PairOverride[](length);
+        uint32[] memory newScaledOfferFactors = new uint32[](length);
         for (uint256 i; i < length; i++) {
-            quotePairs[i] = pairOverrides[i].quotePair;
-            newPairOverrides[i] = pairOverrides[i].pairOverride;
+            quotePairs[i] = setPairScaledOfferFactorParams[i].quotePair;
+            newScaledOfferFactors[i] = setPairScaledOfferFactorParams[i].scaledOfferFactor;
         }
-        assertEq(swapper.getPairOverrides(quotePairs), newPairOverrides);
+        assertEq(swapper.getPairScaledOfferFactors(quotePairs), newScaledOfferFactors);
     }
 
-    function test_setPairOverrides_emitsSetPairOverrides() public callerOwner {
+    function test_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors() public callerOwner {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
 
         // TODO: use setup?
 
-        delete pairOverrides;
-        pairOverrides.push(SwapperImpl.SetPairOverrideParams({
-            quotePair: wethETH,
-            pairOverride: SwapperImpl.PairOverride({scaledOfferFactor: 0})
-        }));
-        pairOverrides.push(SwapperImpl.SetPairOverrideParams({
-            quotePair: usdcETH,
-            pairOverride: SwapperImpl.PairOverride({scaledOfferFactor: 98_00_00})
-        }));
+        delete setPairScaledOfferFactorParams;
+        setPairScaledOfferFactorParams.push(
+            SwapperImpl.SetPairScaledOfferFactorParams({quotePair: wethETH, scaledOfferFactor: 0})
+        );
+        setPairScaledOfferFactorParams.push(
+            SwapperImpl.SetPairScaledOfferFactorParams({quotePair: usdcETH, scaledOfferFactor: 98_00_00})
+        );
 
         vm.prank(initSwapperParams.owner);
         vm.expectEmit();
-        emit SetPairOverrides(pairOverrides);
-        swapper.setPairOverrides(pairOverrides);
+        emit SetPairScaledOfferFactors(setPairScaledOfferFactorParams);
+        swapper.setPairScaledOfferFactors(setPairScaledOfferFactorParams);
     }
 
     /// -----------------------------------------------------------------------
@@ -750,9 +743,10 @@ contract SwapperImplTest is BaseTest {
         assertEq(swapper.defaultScaledOfferFactor(), newDefaultScaledOfferFactor_);
     }
 
-    function testFuzz_setDefaultScaledOfferFactor_emitsSetDefaultScaledOfferFactor(
-        uint32 newDefaultScaledOfferFactor_
-    ) public callerOwner {
+    function testFuzz_setDefaultScaledOfferFactor_emitsSetDefaultScaledOfferFactor(uint32 newDefaultScaledOfferFactor_)
+        public
+        callerOwner
+    {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
 
         vm.prank(initSwapperParams.owner);
@@ -762,66 +756,52 @@ contract SwapperImplTest is BaseTest {
     }
 
     /// -----------------------------------------------------------------------
-    /// tests - fuzz - setPairOverrides
+    /// tests - fuzz - setPairScaledOfferFactors
     /// -----------------------------------------------------------------------
 
-    function testFuzz_revertWhen_callerNotOwner_setPairOverrides(
+    function testFuzz_revertWhen_callerNotOwner_setPairScaledOfferFactors(
         address notOwner_,
-        SwapperImpl.SetPairOverrideParams[] memory newSetPairOverrides_
+        SwapperImpl.SetPairScaledOfferFactorParams[] memory newSetPairScaledOfferFactors_
     ) public {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
 
         vm.assume(notOwner_ != initSwapperParams.owner);
         vm.prank(notOwner_);
         vm.expectRevert(Unauthorized.selector);
-        swapper.setPairOverrides(newSetPairOverrides_);
+        swapper.setPairScaledOfferFactors(newSetPairScaledOfferFactors_);
     }
 
     // TODO: upgrade to test array; need to prune converted duplicates
-    function testFuzz_setPairOverrides_setsPairOverrides(
-        SwapperImpl.SetPairOverrideParams memory newSetPairOverrides_
+    function testFuzz_setPairScaledOfferFactors_setsPairScaledOfferFactors(
+        SwapperImpl.SetPairScaledOfferFactorParams memory newSetPairScaledOfferFactors_
     ) public callerOwner {
         uint256 length = 1;
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
-        SwapperImpl.SetPairOverrideParams[] memory newSetPairOverrides = new SwapperImpl.SetPairOverrideParams[](1);
-        newSetPairOverrides[0] = newSetPairOverrides_;
+        SwapperImpl.SetPairScaledOfferFactorParams[] memory newSetPairScaledOfferFactors =
+            new SwapperImpl.SetPairScaledOfferFactorParams[](1);
+        newSetPairScaledOfferFactors[0] = newSetPairScaledOfferFactors_;
 
         vm.prank(initSwapperParams.owner);
-        swapper.setPairOverrides(newSetPairOverrides);
+        swapper.setPairScaledOfferFactors(newSetPairScaledOfferFactors);
 
         QuotePair[] memory quotePairs = new QuotePair[](length);
-        SwapperImpl.PairOverride[] memory newPairOverrides = new SwapperImpl.PairOverride[](length);
+        uint32[] memory newScaledOfferFactors = new uint32[](length);
         for (uint256 i; i < length; i++) {
-            quotePairs[i] = newSetPairOverrides[i].quotePair;
-            newPairOverrides[i] = newSetPairOverrides[i].pairOverride;
+            quotePairs[i] = newSetPairScaledOfferFactors[i].quotePair;
+            newScaledOfferFactors[i] = newSetPairScaledOfferFactors[i].scaledOfferFactor;
         }
-        assertEq(swapper.getPairOverrides(quotePairs), newPairOverrides);
+        assertEq(swapper.getPairScaledOfferFactors(quotePairs), newScaledOfferFactors);
     }
 
-    function testFuzz_setPairOverrides_emitsSetPairOverrides(
-        SwapperImpl.SetPairOverrideParams[] memory newSetPairOverrides_
+    function testFuzz_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors(
+        SwapperImpl.SetPairScaledOfferFactorParams[] memory newSetPairScaledOfferFactors_
     ) public callerOwner {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
 
         vm.prank(initSwapperParams.owner);
         vm.expectEmit();
-        emit SetPairOverrides(newSetPairOverrides_);
-        swapper.setPairOverrides(newSetPairOverrides_);
-    }
-
-    /// -----------------------------------------------------------------------
-    /// internal
-    /// -----------------------------------------------------------------------
-
-    function assertEq(SwapperImpl.PairOverride[] memory a, SwapperImpl.PairOverride[] memory b) internal {
-        assertEq(a.length, b.length);
-        for (uint256 i; i < a.length; i++) {
-            assertEq(a[i], b[i]);
-        }
-    }
-
-    function assertEq(SwapperImpl.PairOverride memory a, SwapperImpl.PairOverride memory b) internal {
-        assertEq(a.scaledOfferFactor, b.scaledOfferFactor);
+        emit SetPairScaledOfferFactors(newSetPairScaledOfferFactors_);
+        swapper.setPairScaledOfferFactors(newSetPairScaledOfferFactors_);
     }
 }
 

@@ -6,7 +6,7 @@ import {LibCloneBase} from "splits-tests/LibClone.t.sol";
 
 import {CreateOracleParams, IOracleFactory, IOracle, OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
-import {QuotePair} from "splits-utils/QuotePair.sol";
+import {QuotePair} from "splits-utils/LibQuotes.sol";
 import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 
 import {SwapperFactory} from "../src/SwapperFactory.sol";
@@ -25,7 +25,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
     bool paused;
     address tokenToBeneficiary;
     uint32 defaultScaledOfferFactor;
-    SwapperImpl.SetPairOverrideParams[] pairOverrides;
+    SwapperImpl.SetPairScaledOfferFactorParams[] pairScaledOfferFactors;
 
     UniV3OracleFactory oracleFactory;
 
@@ -45,12 +45,10 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         tokenToBeneficiary = ETH_ADDRESS;
         defaultScaledOfferFactor = 99_00_00;
 
-        pairOverrides.push(
-            SwapperImpl.SetPairOverrideParams({
+        pairScaledOfferFactors.push(
+            SwapperImpl.SetPairScaledOfferFactorParams({
                 quotePair: QuotePair({base: WETH9, quote: ETH_ADDRESS}),
-                pairOverride: SwapperImpl.PairOverride({
-                    scaledOfferFactor: PERCENTAGE_SCALE // no discount
-                })
+                scaledOfferFactor: PERCENTAGE_SCALE // no discount
             })
         );
 
@@ -93,7 +91,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
             tokenToBeneficiary: tokenToBeneficiary,
             oracleParams: oracleParams,
             defaultScaledOfferFactor: defaultScaledOfferFactor,
-            pairOverrides: pairOverrides
+            pairScaledOfferFactors: pairScaledOfferFactors
         });
     }
 
@@ -105,7 +103,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
             tokenToBeneficiary: tokenToBeneficiary,
             oracle: oracle,
             defaultScaledOfferFactor: defaultScaledOfferFactor,
-            pairOverrides: pairOverrides
+            pairScaledOfferFactors: pairScaledOfferFactors
         });
     }
 

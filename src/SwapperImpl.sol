@@ -4,8 +4,7 @@ pragma solidity ^0.8.17;
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {PausableImpl} from "splits-utils/PausableImpl.sol";
-import {QuotePair, SortedConvertedQuotePair} from "splits-utils/QuotePair.sol";
-import {QuoteParams} from "splits-utils/QuoteParams.sol";
+import {QuotePair, QuoteParams, SortedQuotePair} from "splits-utils/LibQuotes.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
@@ -19,8 +18,8 @@ import {ISwapperFlashCallback} from "./interfaces/ISwapperFlashCallback.sol";
 /// onchain revenue into a single token
 /// Please be aware, owner has _FULL CONTROL_ of the deployment.
 /// @dev This contract uses a modular oracle. Be very careful to use a secure
-/// oracle with sensible defaults & overrides for desired behavior. Otherwise
-/// may result in catastrophic loss of funds.
+/// oracle with sensible settings for the desired behavior. Insecure oracles
+/// will  result in catastrophic loss of funds.
 /// This contract uses token = address(0) to refer to ETH.
 contract SwapperImpl is WalletImpl, PausableImpl {
     /// -----------------------------------------------------------------------
@@ -51,15 +50,11 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         address tokenToBeneficiary;
         IOracle oracle;
         uint32 defaultScaledOfferFactor;
-        SetPairOverrideParams[] pairOverrides;
+        SetPairScaledOfferFactorParams[] pairScaledOfferFactors;
     }
 
-    struct SetPairOverrideParams {
+    struct SetPairScaledOfferFactorParams {
         QuotePair quotePair;
-        PairOverride pairOverride;
-    }
-
-    struct PairOverride {
         uint32 scaledOfferFactor;
     }
 
@@ -71,7 +66,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     event SetTokenToBeneficiary(address tokenToBeneficiary);
     event SetOracle(IOracle oracle);
     event SetDefaultScaledOfferFactor(uint32 defaultScaledOfferFactor);
-    event SetPairOverrides(SetPairOverrideParams[] params);
+    event SetPairScaledOfferFactors(SetPairScaledOfferFactorParams[] params);
 
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
@@ -141,9 +136,9 @@ contract SwapperImpl is WalletImpl, PausableImpl {
 
     /// slot 4 - 0 bytes free
 
-    /// overrides for specific quote pairs
+    /// scaledOfferFactors for specific quote pairs
     /// 32 bytes
-    mapping(address => mapping(address => PairOverride)) internal $_pairOverrides;
+    mapping(address => mapping(address => uint32)) internal $_pairScaledOfferFactors;
 
     /// -----------------------------------------------------------------------
     /// constructor & initializer
@@ -165,7 +160,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         $oracle = params_.oracle;
         $defaultScaledOfferFactor = params_.defaultScaledOfferFactor;
 
-        _setPairOverrides(params_.pairOverrides);
+        _setPairScaledOfferFactors(params_.pairScaledOfferFactors);
     }
 
     /// -----------------------------------------------------------------------
@@ -204,10 +199,10 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         emit SetDefaultScaledOfferFactor(defaultScaledOfferFactor_);
     }
 
-    /// set pair overrides
-    function setPairOverrides(SetPairOverrideParams[] calldata params_) external onlyOwner {
-        _setPairOverrides(params_);
-        emit SetPairOverrides(params_);
+    /// set pair scaled offer factors
+    function setPairScaledOfferFactors(SetPairScaledOfferFactorParams[] calldata params_) external onlyOwner {
+        _setPairScaledOfferFactors(params_);
+        emit SetPairScaledOfferFactors(params_);
     }
 
     /// -----------------------------------------------------------------------
@@ -230,16 +225,16 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         return $defaultScaledOfferFactor;
     }
 
-    /// get pair override for an array of quote pairs
-    function getPairOverrides(QuotePair[] calldata quotePairs_)
+    /// get pair scaled offer factors for an array of quote pairs
+    function getPairScaledOfferFactors(QuotePair[] calldata quotePairs_)
         external
         view
-        returns (PairOverride[] memory pairOverrides)
+        returns (uint32[] memory pairScaledOfferFactors)
     {
         uint256 length = quotePairs_.length;
-        pairOverrides = new PairOverride[](length);
+        pairScaledOfferFactors = new uint32[](length);
         for (uint256 i; i < length;) {
-            pairOverrides[i] = _getPairOverride(quotePairs_[i]);
+            pairScaledOfferFactors[i] = _getPairScaledOfferFactor(quotePairs_[i]);
             unchecked {
                 ++i;
             }
@@ -308,12 +303,12 @@ contract SwapperImpl is WalletImpl, PausableImpl {
                 revert InsufficientFunds_InContract();
             }
 
-            PairOverride memory po = _getPairOverride(_convertAndSortQuotePair(qp.quotePair));
-            if (po.scaledOfferFactor == 0) {
-                po.scaledOfferFactor = $defaultScaledOfferFactor;
+            uint32 scaledOfferFactor = _getPairScaledOfferFactor(qp.quotePair._sort());
+            if (scaledOfferFactor == 0) {
+                scaledOfferFactor = $defaultScaledOfferFactor;
             }
 
-            scaledAmountToBeneficiary = unscaledAmountsToBeneficiary[i] * po.scaledOfferFactor / PERCENTAGE_SCALE;
+            scaledAmountToBeneficiary = unscaledAmountsToBeneficiary[i] * scaledOfferFactor / PERCENTAGE_SCALE;
             amountsToBeneficiary[i] = scaledAmountToBeneficiary;
             amountToBeneficiary += scaledAmountToBeneficiary;
             tokenToTrader._safeTransfer(msg.sender, amountToTrader);
@@ -350,46 +345,30 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         }
     }
 
-    /// set pair overrides
-    function _setPairOverrides(SetPairOverrideParams[] calldata params_) internal {
+    /// set pair scaled offer factors
+    function _setPairScaledOfferFactors(SetPairScaledOfferFactorParams[] calldata params_) internal {
         uint256 length = params_.length;
         for (uint256 i; i < length;) {
-            _setPairOverride(params_[i]);
+            _setPairScaledOfferFactor(params_[i]);
             unchecked {
                 ++i;
             }
         }
     }
 
-    /// set pair override
-    function _setPairOverride(SetPairOverrideParams calldata params_) internal {
-        SortedConvertedQuotePair memory scqp = _convertAndSortQuotePair(params_.quotePair);
-        $_pairOverrides[scqp.cToken0][scqp.cToken1] = params_.pairOverride;
+    /// set pair scaled offer factors
+    function _setPairScaledOfferFactor(SetPairScaledOfferFactorParams calldata params_) internal {
+        SortedQuotePair memory sqp = params_.quotePair._sort();
+        $_pairScaledOfferFactors[sqp.token0][sqp.token1] = params_.scaledOfferFactor;
     }
 
-    /// get pair override
-    function _getPairOverride(QuotePair calldata quotePair_) internal view returns (PairOverride memory) {
-        return _getPairOverride(_convertAndSortQuotePair(quotePair_));
+    /// get pair scaled offer factors
+    function _getPairScaledOfferFactor(QuotePair calldata quotePair_) internal view returns (uint32) {
+        return _getPairScaledOfferFactor(quotePair_._sort());
     }
 
-    /// get pair overrides
-    function _getPairOverride(SortedConvertedQuotePair memory scqp_) internal view returns (PairOverride memory) {
-        return $_pairOverrides[scqp_.cToken0][scqp_.cToken1];
-    }
-
-    // TODO: should these be .. outside the contract? or in an inherited contract w a virtual _convertToken that's overridden?
-
-    /// convert & sort tokens into canonical order
-    function _convertAndSortQuotePair(QuotePair calldata quotePair_)
-        internal
-        view
-        returns (SortedConvertedQuotePair memory)
-    {
-        return quotePair_._convert(_convertToken)._sort();
-    }
-
-    /// no conversion needed for swapper
-    function _convertToken(address token_) internal pure returns (address) {
-        return token_;
+    /// get pair scaled offer factors
+    function _getPairScaledOfferFactor(SortedQuotePair memory sqp_) internal view returns (uint32) {
+        return $_pairScaledOfferFactors[sqp_.token0][sqp_.token1];
     }
 }
