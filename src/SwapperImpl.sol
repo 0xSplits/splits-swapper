@@ -73,6 +73,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
     event Flash(
+        address indexed beneficiary,
         address indexed trader,
         QuoteParams[] quoteParams,
         address tokenToBeneficiary,
@@ -273,9 +274,12 @@ contract SwapperImpl is WalletImpl, PausableImpl {
             data: callbackData_
         });
 
-        uint256 excessToBeneficiary = _transferToBeneficiary(_tokenToBeneficiary, amountToBeneficiary);
+        address _beneficiary = $beneficiary;
+        uint256 excessToBeneficiary = _transferToBeneficiary(_beneficiary, _tokenToBeneficiary, amountToBeneficiary);
 
-        emit Flash(msg.sender, quoteParams_, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary);
+        emit Flash(
+            _beneficiary, msg.sender, quoteParams_, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary
+        );
     }
 
     /// -----------------------------------------------------------------------
@@ -321,11 +325,10 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         }
     }
 
-    function _transferToBeneficiary(address tokenToBeneficiary_, uint256 amountToBeneficiary_)
+    function _transferToBeneficiary(address beneficiary_, address tokenToBeneficiary_, uint256 amountToBeneficiary_)
         internal
         returns (uint256 excessToBeneficiary)
     {
-        address _beneficiary = $beneficiary;
         if (tokenToBeneficiary_._isETH()) {
             if ($_payback < amountToBeneficiary_) {
                 revert InsufficientFunds_FromTrader();
@@ -335,14 +338,14 @@ contract SwapperImpl is WalletImpl, PausableImpl {
             // send eth to beneficiary
             uint256 ethBalance = address(this).balance;
             excessToBeneficiary = ethBalance - amountToBeneficiary_;
-            _beneficiary.safeTransferETH(ethBalance);
+            beneficiary_.safeTransferETH(ethBalance);
         } else {
-            tokenToBeneficiary_.safeTransferFrom(msg.sender, _beneficiary, amountToBeneficiary_);
+            tokenToBeneficiary_.safeTransferFrom(msg.sender, beneficiary_, amountToBeneficiary_);
 
             // flush excess tokenToBeneficiary to beneficiary
             excessToBeneficiary = ERC20(tokenToBeneficiary_).balanceOf(address(this));
             if (excessToBeneficiary > 0) {
-                tokenToBeneficiary_.safeTransfer(_beneficiary, excessToBeneficiary);
+                tokenToBeneficiary_.safeTransfer(beneficiary_, excessToBeneficiary);
             }
         }
     }

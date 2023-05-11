@@ -41,6 +41,7 @@ contract SwapperImplTest is BaseTest {
     event ReceiveETH(uint256 amount);
     event Payback(address indexed payer, uint256 amount);
     event Flash(
+        address indexed beneficiary,
         address indexed trader,
         QuoteParams[] quoteParams,
         address tokenToBeneficiary,
@@ -527,6 +528,7 @@ contract SwapperImplTest is BaseTest {
 
         _expectEmit();
         emit Flash({
+            beneficiary: beneficiary,
             trader: trader,
             quoteParams: quoteParams,
             tokenToBeneficiary: quote,
@@ -610,6 +612,7 @@ contract SwapperImplTest is BaseTest {
         mockQuoteAmounts[0] = value;
         _expectEmit();
         emit Flash({
+            beneficiary: beneficiary,
             trader: trader,
             quoteParams: quoteParams,
             tokenToBeneficiary: quote,
@@ -684,12 +687,12 @@ contract SwapperImplTest is BaseTest {
 
     function test_revertsWhen_traderHasntPaidEnoughETH_transfersToBeneficiary_eth() public {
         vm.expectRevert(InsufficientFunds_FromTrader.selector);
-        swapperImplHarness.exposed_transferToBeneficiary(quote, 1 ether);
+        swapperImplHarness.exposed_transferToBeneficiary(beneficiary, quote, 1 ether);
     }
 
     function test_transferToBeneficiary_transfersToBeneficiary_eth() public {
         swapperImplHarness.payback{value: 1 ether}();
-        uint256 excessToBeneficiary = swapperImplHarness.exposed_transferToBeneficiary(quote, 1 ether);
+        uint256 excessToBeneficiary = swapperImplHarness.exposed_transferToBeneficiary(beneficiary, quote, 1 ether);
         assertEq(quote._balanceOf(beneficiary), beneficiaryQuotePreBalance + swapperQuotePreBalance + 1 ether);
         assertEq(quote._balanceOf(address(swapperImplHarness)), 0);
         assertEq(excessToBeneficiary, swapperQuotePreBalance);
@@ -697,7 +700,7 @@ contract SwapperImplTest is BaseTest {
 
     function test_transferToBeneficiary_transfersToBeneficiary_eth_resetsPayback() public {
         swapperImplHarness.payback{value: 1 ether}();
-        swapperImplHarness.exposed_transferToBeneficiary(quote, 1 ether);
+        swapperImplHarness.exposed_transferToBeneficiary(beneficiary, quote, 1 ether);
         assertEq(swapperImplHarness.exposed_payback(), 0);
     }
 
@@ -705,7 +708,7 @@ contract SwapperImplTest is BaseTest {
         vm.startPrank(trader);
 
         MockERC20(base).approve(address(swapperImplHarness), 1 ether);
-        uint256 excessToBeneficiary = swapperImplHarness.exposed_transferToBeneficiary(base, 1 ether);
+        uint256 excessToBeneficiary = swapperImplHarness.exposed_transferToBeneficiary(beneficiary, base, 1 ether);
         assertEq(base._balanceOf(beneficiary), beneficiaryBasePreBalance + swapperBasePreBalance + 1 ether);
         assertEq(base._balanceOf(trader), traderBasePreBalance - 1 ether);
         assertEq(base._balanceOf(address(swapperImplHarness)), 0);
@@ -817,11 +820,12 @@ contract SwapperImplHarness is SwapperImpl {
         return _transferToTrader(tokenToBeneficiary_, quoteParams_);
     }
 
-    function exposed_transferToBeneficiary(address tokenToBeneficiary_, uint256 amountToBeneficiary_)
-        external
-        returns (uint256 excessToBeneficiary)
-    {
-        return _transferToBeneficiary(tokenToBeneficiary_, amountToBeneficiary_);
+    function exposed_transferToBeneficiary(
+        address beneficiary_,
+        address tokenToBeneficiary_,
+        uint256 amountToBeneficiary_
+    ) external returns (uint256 excessToBeneficiary) {
+        return _transferToBeneficiary(beneficiary_, tokenToBeneficiary_, amountToBeneficiary_);
     }
 }
 
