@@ -263,7 +263,11 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     }
 
     /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
-    function flash(QuoteParams[] calldata quoteParams_, bytes calldata callbackData_) external pausable {
+    function flash(QuoteParams[] calldata quoteParams_, bytes calldata callbackData_)
+        external
+        pausable
+        returns (uint256)
+    {
         address _tokenToBeneficiary = $tokenToBeneficiary;
         (uint256 amountToBeneficiary, uint256[] memory amountsToBeneficiary) =
             _transferToTrader(_tokenToBeneficiary, quoteParams_);
@@ -280,6 +284,8 @@ contract SwapperImpl is WalletImpl, PausableImpl {
         emit Flash(
             _beneficiary, msg.sender, quoteParams_, _tokenToBeneficiary, amountsToBeneficiary, excessToBeneficiary
         );
+
+        return amountToBeneficiary + excessToBeneficiary;
     }
 
     /// -----------------------------------------------------------------------

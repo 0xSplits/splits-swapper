@@ -13,6 +13,7 @@ import {ISwapperFlashCallback} from "../src/interfaces/ISwapperFlashCallback.sol
 import {SwapperFactory} from "../src/SwapperFactory.sol";
 import {SwapperImpl} from "../src/SwapperImpl.sol";
 
+// TODO: add test for #flash return value
 // TODO: add test for scaling override ?
 // TODO: add flash test for weth-weth
 // TODO: add flash test for eth-weth
