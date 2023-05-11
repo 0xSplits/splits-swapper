@@ -3,7 +3,7 @@ pragma solidity ^0.8.17;
 
 import "splits-tests/Base.t.sol";
 
-import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
+import {UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
 import {IOracle} from "splits-oracle/interfaces/IOracle.sol";
 import {OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
 import {QuotePair, QuoteParams} from "splits-utils/LibQuotes.sol";
@@ -95,7 +95,6 @@ contract SwapperImplTest is BaseTest {
 
         // set up oracle
         oracleFactory = new UniV3OracleFactory({
-            uniswapV3Factory_: IUniswapV3Factory(UNISWAP_V3_FACTORY),
             weth9_: WETH9
         });
         // TODO: add other attributes?

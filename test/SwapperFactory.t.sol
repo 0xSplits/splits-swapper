@@ -5,7 +5,7 @@ import "splits-tests/Base.t.sol";
 import {LibCloneBase} from "splits-tests/LibClone.t.sol";
 
 import {CreateOracleParams, IOracleFactory, IOracle, OracleParams} from "splits-oracle/peripherals/OracleParams.sol";
-import {IUniswapV3Factory, UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
+import {UniV3OracleFactory} from "splits-oracle/UniV3OracleFactory.sol";
 import {QuotePair} from "splits-utils/LibQuotes.sol";
 import {UniV3OracleImpl} from "splits-oracle/UniV3OracleImpl.sol";
 
@@ -31,7 +31,7 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
 
     uint24 defaultFee;
     uint32 defaultPeriod;
-    UniV3OracleImpl.SetPairOverrideParams[] oraclePairOverrides;
+    UniV3OracleImpl.SetPairDetailParams[] oraclePairDetails;
     CreateOracleParams createOracleParams;
     OracleParams oracleParams;
     IOracle oracle;
@@ -54,7 +54,6 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
 
         // set oracle up
         oracleFactory = new UniV3OracleFactory({
-            uniswapV3Factory_: IUniswapV3Factory(UNISWAP_V3_FACTORY),
             weth9_: WETH9
         });
 
@@ -111,9 +110,8 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         return UniV3OracleImpl.InitParams({
             owner: owner,
             paused: paused,
-            defaultFee: defaultFee,
             defaultPeriod: defaultPeriod,
-            pairOverrides: oraclePairOverrides
+            pairDetails: oraclePairDetails
         });
     }
 
