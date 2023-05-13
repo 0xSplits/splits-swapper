@@ -39,6 +39,12 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
     function setUp() public virtual override(BaseTest, LibCloneBase) {
         BaseTest.setUp();
 
+        $oracleFactory = new UniV3OracleFactory({
+            weth9_: WETH9
+            });
+        $swapperFactory = new SwapperFactory();
+        $swapperImpl = $swapperFactory.swapperImpl();
+
         $owner = users.alice;
         $paused = false;
         $defaultPeriod = 30 minutes;
@@ -46,7 +52,6 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
         $wethETH = QuotePair({base: WETH9, quote: ETH_ADDRESS});
         $usdcETH = QuotePair({base: USDC, quote: ETH_ADDRESS});
 
-        // TODO: do i need to test period override?
         $oraclePairDetails.push(
             UniV3OracleImpl.SetPairDetailParams({
                 quotePair: $usdcETH,
@@ -68,21 +73,12 @@ contract SwapperFactoryTest is BaseTest, LibCloneBase {
             })
         );
 
-        // set oracle up
-        $oracleFactory = new UniV3OracleFactory({
-            weth9_: WETH9
-            });
-
         UniV3OracleImpl.InitParams memory initOracleParams = _initOracleParams();
         $oracleParams.createOracleParams =
             CreateOracleParams({factory: IOracleFactory(address($oracleFactory)), data: abi.encode(initOracleParams)});
 
         $oracle = $oracleFactory.createUniV3Oracle(initOracleParams);
         $oracleParams.oracle = $oracle;
-
-        // set swapper up
-        $swapperFactory = new SwapperFactory();
-        $swapperImpl = $swapperFactory.swapperImpl();
 
         // setup LibCloneBase
         impl = address($swapperImpl);
