@@ -10,6 +10,7 @@ More generally, many onchain value flows benefit technically and financially fro
 ## What
 
 Swapper is a payments module that trustlessly & automatically transforms multi-token revenue into a particular output token.
+![](https://docs.0xsplits.xyz/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fswapper_diagram.2f2890db.png&w=3840&q=75)
 
 ## How
 
