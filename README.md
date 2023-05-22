@@ -41,3 +41,7 @@ To the extent your oracle has an owner as well, this same logic applies.
 `forge test` - compile & test the contracts
 
 `forge t -vvv` - produces a trace of any failing tests
+
+## natspec
+
+`forge doc --serve --port 4000` - serves natspec docs at http://localhost:4000/
