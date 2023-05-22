@@ -16,7 +16,7 @@ import {PairScaledOfferFactors} from "./libraries/PairScaledOfferFactors.sol";
 /// @title Swapper Implementation
 /// @author 0xSplits
 /// @notice A contract to trustlessly & automatically convert multi-token
-/// onchain revenue into a single token
+/// onchain revenue into a particular output token.
 /// Please be aware, owner has _FULL CONTROL_ of the deployment.
 /// @dev This contract uses a modular oracle. Be very careful to use a secure
 /// oracle with sensible settings for the desired behavior. Insecure oracles
@@ -114,7 +114,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     address internal $beneficiary;
     /// 20 bytes
 
-    /// used to track eth payback in flash
+    /// used to track ETH payback in flash
     uint96 internal $_payback;
     /// 12 bytes
 
@@ -125,7 +125,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     address internal $tokenToBeneficiary;
     /// 20 bytes
 
-    /// default price scaling factor
+    /// default oracle price scaling factor
     /// @dev PERCENTAGE_SCALE = 1e6 = 100_00_00 = 100% = no discount or premium
     /// 99_00_00 = 99% = 1% discount to oracle; 101_00_00 = 101% = 1% premium to oracle
     /// 4 bytes
@@ -133,7 +133,7 @@ contract SwapperImpl is WalletImpl, PausableImpl {
 
     /// slot 3 - 12 bytes free
 
-    /// price oracle for flash
+    /// price oracle for `#flash`
     IOracle internal $oracle;
     /// 20 bytes
 
@@ -254,15 +254,15 @@ contract SwapperImpl is WalletImpl, PausableImpl {
     /*     emit ReceiveETH(msg.value); */
     /* } */
 
-    /// allows flash to track eth payback to beneficiary
-    /// @dev if used outside swapperFlashCallback, msg.sender may lose funds
-    /// accumulates until next flash call
+    /// allows `#flash` to track ETH payback to `beneficiary`
+    /// @dev if used outside `#swapperFlashCallback`, msg.sender may lose funds.
+    /// Accumulates until next flash call
     function payback() external payable {
         $_payback += msg.value.toUint96();
         emit Payback(msg.sender, msg.value);
     }
 
-    /// allow third parties to withdraw tokens in return for sending tokenToBeneficiary to beneficiary
+    /// allow third parties to withdraw tokens in return for sending `tokenToBeneficiary` to `beneficiary`
     function flash(QuoteParams[] calldata quoteParams_, bytes calldata callbackData_)
         external
         pausable
@@ -341,14 +341,14 @@ contract SwapperImpl is WalletImpl, PausableImpl {
             }
             $_payback = 0;
 
-            // send eth to beneficiary
+            // send ETH to `beneficiary`
             uint256 ethBalance = address(this).balance;
             excessToBeneficiary = ethBalance - amountToBeneficiary_;
             beneficiary_.safeTransferETH(ethBalance);
         } else {
             tokenToBeneficiary_.safeTransferFrom(msg.sender, beneficiary_, amountToBeneficiary_);
 
-            // flush excess tokenToBeneficiary to beneficiary
+            // flush excess `tokenToBeneficiary` to `beneficiary`
             excessToBeneficiary = ERC20(tokenToBeneficiary_).balanceOf(address(this));
             if (excessToBeneficiary > 0) {
                 tokenToBeneficiary_.safeTransfer(beneficiary_, excessToBeneficiary);

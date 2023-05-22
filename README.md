@@ -22,6 +22,7 @@ Directly with traders via integration contracts required to handle `#flash`'s ca
 ### How does it price swaps?
 
 Modularly, via each Swapper's designated [IOracle](https://github.com/0xSplits/splits-oracle/blob/main/src/interfaces/IOracle.sol).
+Each Swapper may also apply it's own default & quote-specific scaling factors to said oracle's pricing.
 
 ### How is it governed?
 

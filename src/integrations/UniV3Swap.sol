@@ -13,10 +13,10 @@ import {ISwapperFlashCallback} from "../interfaces/ISwapperFlashCallback.sol";
 import {SwapperImpl} from "../SwapperImpl.sol";
 import {SwapperFactory} from "../SwapperFactory.sol";
 
-/// @title Integration contract for Swapper & Uniswap V3
+/// @title Uniswap V3 Swapper Integration
 /// @author 0xSplits
-/// @notice Used by EOAs & simple bots to execute swapper#flash with uniswap v3
-/// This contract uses token = address(0) to refer to ETH.
+/// @notice Used by EOAs & simple bots to execute `Swapper#flash` with uniswap v3
+/// @dev This contract uses token = address(0) to refer to ETH.
 contract UniV3Swap is ISwapperFlashCallback {
     using SafeTransferLib for address;
     using TokenUtils for address;
@@ -47,19 +47,19 @@ contract UniV3Swap is ISwapperFlashCallback {
     /// receive from weth9
     receive() external payable {}
 
-    /// begin swapper#flash
-    /// @dev trade may pay eth & include the extra weth in params_.exactInputParams to make up for oracle shortfall
-    /// if swapper incentives are insufficient and they still want to push funds to beneficiary
-    /// Recipient in params_.exactInputParams should always be _this_ contract so it can handle
-    /// the approval / payback for swapper
+    /// begin `Swapper#flash`
+    /// @dev trader may pay ETH & include the extra WETH in `params_.exactInputParams` to make up
+    /// for `Swapper#oracle` shortfall. If swapper incentives are insufficient and they still want to push
+    /// funds to `beneficiary`. Recipient in `params_.exactInputParams` should always be _this_ contract
+    /// so it can handle the approval / payback for Swapper
     function initFlash(SwapperImpl swapper, InitFlashParams calldata params_) external payable {
         swapper.flash(params_.quoteParams, abi.encode(params_.flashCallbackData));
     }
 
-    /// swapper#flash callback
-    /// @dev by end of function if tokenToBeneficiary_ is eth, must have sent amountToBeneficiary_
-    /// to swapper#payback. Otherwise, must approve swapper to transferFrom amountToBeneficiary_
-    /// DO NOT HOLD FUNDS IN THIS CONTRACT WITHOUT PROPER VERIFICATION OF MSG.SENDER
+    /// `Swapper#flash` callback
+    /// @dev by end of function if `tokenToBeneficiary_` is ETH, must have sent `amountToBeneficiary_`
+    /// to `Swapper#payback`. Otherwise, must approve Swapper to transfer `amountToBeneficiary_`
+    /// DO NOT HOLD FUNDS IN THIS CONTRACT WITHOUT ADDING PROPER VERIFICATION OF MSG.SENDER
     function swapperFlashCallback(address tokenToBeneficiary_, uint256 amountToBeneficiary_, bytes calldata data_)
         external
     {
@@ -89,7 +89,7 @@ contract UniV3Swap is ISwapperFlashCallback {
 
         address excessRecipient = flashCallbackData.excessRecipient;
         if (tokenToBeneficiary_._isETH()) {
-            // withdraw weth from uni swaps to eth
+            // withdraw WETH from uni swaps to ETH
             uint256 weth9Balance = weth9.balanceOf(address(this));
             weth9.withdraw(weth9Balance);
 

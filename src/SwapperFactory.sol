@@ -9,7 +9,7 @@ import {SwapperImpl} from "./SwapperImpl.sol";
 
 /// @title Swapper Factory
 /// @author 0xSplits
-/// @notice Factory for creating & validating Swappers
+/// @notice Factory for creating Swappers
 /// @dev This contract uses token = address(0) to refer to ETH.
 contract SwapperFactory {
     using LibClone for address;

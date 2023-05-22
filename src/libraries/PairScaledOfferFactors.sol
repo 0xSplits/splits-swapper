@@ -5,7 +5,7 @@ import {QuotePair, SortedQuotePair} from "splits-utils/LibQuotes.sol";
 
 import {SwapperImpl} from "../SwapperImpl.sol";
 
-/// @title PairScaledOfferFactor Library
+/// @title PairScaledOfferFactors Library
 /// @author 0xSplits
 /// @notice Setters & getters for quote pairs' scaledOfferFactors
 library PairScaledOfferFactors {
