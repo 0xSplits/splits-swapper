@@ -2,15 +2,15 @@
 
 [Docs](https://dev.docs.0xsplits.xyz/core/swapper)
 
-## Why
-
-Many onchain entities (e.g. creators, collectives, DAOs, businesses) generate onchain revenues in tokens that don't match the denominations of their expenses (e.g. salaries, taxes) resulting in [asset-liability currency mismatch](https://en.wikipedia.org/wiki/Asset%E2%80%93liability_mismatch#Currency_Mismatch).
-More generally, many onchain value flows benefit technically and financially from the ability to curate the denomination.
-
 ## What
 
 Swapper is a payments module that trustlessly & automatically transforms multi-token revenue into a particular output token.
 ![](https://docs.0xsplits.xyz/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fswapper_diagram.2f2890db.png&w=3840&q=75)
+
+## Why
+
+Many onchain entities (e.g. creators, collectives, DAOs, businesses) generate onchain revenues in tokens that don't match the denominations of their expenses (e.g. salaries, taxes) resulting in [asset-liability currency mismatch](https://en.wikipedia.org/wiki/Asset%E2%80%93liability_mismatch#Currency_Mismatch).
+More generally, many onchain value flows benefit technically and financially from the ability to curate the denomination.
 
 ## How
 
