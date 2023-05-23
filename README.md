@@ -14,7 +14,7 @@ More generally, many onchain value flows benefit technically and financially fro
 
 ## How
 
-[![](https://mermaid.ink/img/pako:eNp9UkFOwzAQ_IrlE4hGII4-VIICEgeEoL0RDltn01p17GCvQVHVv-PEKk1IwAdL9szs7Ni759IWyAX3-BHQSLxTsHFQsbhy0-4rBwW6bD6_WH5BXaN7NISRQtYJpoyiBw1-m7gjRk8mWDkitvCzA6lRsA3SS7CEN5UNhnziJTDSsp8q0MePdSJjors3Rg6ML9GxNXhkZHdozvw5ex91MaH26aqLtwCt1yB3f8U8-beu96-L6ysWj85-IrtkNTSt-Jft4JVO-UbBbtFgqaQC1wwidWlWtgePc2UTucgS6IHun7bS7wvGZ7xCV4Eq4qzsW0HOaYsV5jy2zAssIWjKeW4OkQqB7LIxkgtyAWc81AXQcbS4KEH7eIuFii5Paf66MTx8AxNR4rU?type=png)](https://mermaid.live/edit#pako:eNp9UkFOwzAQ_IrlE4hGII4-VIICEgeEoL0RDltn01p17GCvQVHVv-PEKk1IwAdL9szs7Ni759IWyAX3-BHQSLxTsHFQsbhy0-4rBwW6bD6_WH5BXaN7NISRQtYJpoyiBw1-m7gjRk8mWDkitvCzA6lRsA3SS7CEN5UNhnziJTDSsp8q0MePdSJjors3Rg6ML9GxNXhkZHdozvw5ex91MaH26aqLtwCt1yB3f8U8-beu96-L6ysWj85-IrtkNTSt-Jft4JVO-UbBbtFgqaQC1wwidWlWtgePc2UTucgS6IHun7bS7wvGZ7xCV4Eq4qzsW0HOaYsV5jy2zAssIWjKeW4OkQqB7LIxkgtyAWc81AXQcbS4KEH7eIuFii5Paf66MTx8AxNR4rU)
+[![Sequence diagram of successful example call to Swapper#flash](https://mermaid.ink/img/pako:eNp9UkFOwzAQ_IrlE4hGII4-VIICEgeEoL0RDltn01p17GCvQVHVv-PEKk1IwAdL9szs7Ni759IWyAX3-BHQSLxTsHFQsbhy0-4rBwW6bD6_WH5BXaN7NISRQtYJpoyiBw1-m7gjRk8mWDkitvCzA6lRsA3SS7CEN5UNhnziJTDSsp8q0MePdSJjors3Rg6ML9GxNXhkZHdozvw5ex91MaH26aqLtwCt1yB3f8U8-beu96-L6ysWj85-IrtkNTSt-Jft4JVO-UbBbtFgqaQC1wwidWlWtgePc2UTucgS6IHun7bS7wvGZ7xCV4Eq4qzsW0HOaYsV5jy2zAssIWjKeW4OkQqB7LIxkgtyAWc81AXQcbS4KEH7eIuFii5Paf66MTx8AxNR4rU?type=png)](https://mermaid.live/edit#pako:eNp9UkFOwzAQ_IrlE4hGII4-VIICEgeEoL0RDltn01p17GCvQVHVv-PEKk1IwAdL9szs7Ni759IWyAX3-BHQSLxTsHFQsbhy0-4rBwW6bD6_WH5BXaN7NISRQtYJpoyiBw1-m7gjRk8mWDkitvCzA6lRsA3SS7CEN5UNhnziJTDSsp8q0MePdSJjors3Rg6ML9GxNXhkZHdozvw5ex91MaH26aqLtwCt1yB3f8U8-beu96-L6ysWj85-IrtkNTSt-Jft4JVO-UbBbtFgqaQC1wwidWlWtgePc2UTucgS6IHun7bS7wvGZ7xCV4Eq4qzsW0HOaYsV5jy2zAssIWjKeW4OkQqB7LIxkgtyAWc81AXQcbS4KEH7eIuFii5Paf66MTx8AxNR4rU)
 
 ### How does it swap?
 
@@ -36,12 +36,16 @@ To the extent your oracle has an owner as well, this same logic applies.
 
 `forge fmt`
 
-## test
+## Setup & test
 
-`forge test` - compile & test the contracts
+`forge i` - install dependencies
+
+`forge b` - compile the contracts
+
+`forge t` - compile & test the contracts
 
 `forge t -vvv` - produces a trace of any failing tests
 
-## natspec
+## Natspec
 
 `forge doc --serve --port 4000` - serves natspec docs at http://localhost:4000/
