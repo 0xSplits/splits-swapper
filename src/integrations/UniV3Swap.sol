@@ -72,6 +72,9 @@ contract UniV3Swap is ISwapperFlashCallback {
 
         ISwapRouter.ExactInputParams[] memory exactInputParams = flashCallbackData.exactInputParams;
         uint256 totalOut = tokenToBeneficiary_._balanceOf(address(this));
+        if (tokenToBeneficiary_._isETH()) {
+            totalOut += weth9.balanceOf(address(this));
+        }
         uint256 length = exactInputParams.length;
         for (uint256 i; i < length;) {
             ISwapRouter.ExactInputParams memory eip = exactInputParams[i];
