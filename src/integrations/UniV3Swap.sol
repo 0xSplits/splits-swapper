@@ -63,18 +63,17 @@ contract UniV3Swap is ISwapperFlashCallback {
     function swapperFlashCallback(address tokenToBeneficiary_, uint256 amountToBeneficiary_, bytes calldata data_)
         external
     {
+        FlashCallbackData memory flashCallbackData = abi.decode(data_, (FlashCallbackData));
+        ISwapRouter.ExactInputParams[] memory exactInputParams = flashCallbackData.exactInputParams;
+
         uint256 ethBalance = address(this).balance;
-        if (!tokenToBeneficiary_._isETH() && ethBalance != 0) {
+        if (ethBalance != 0) {
             weth9.deposit{value: ethBalance}();
         }
+        uint256 totalOut = (tokenToBeneficiary_._isETH())
+            ? weth9.balanceOf(address(this))
+            : tokenToBeneficiary_.balanceOf(address(this));
 
-        FlashCallbackData memory flashCallbackData = abi.decode(data_, (FlashCallbackData));
-
-        ISwapRouter.ExactInputParams[] memory exactInputParams = flashCallbackData.exactInputParams;
-        uint256 totalOut = tokenToBeneficiary_._balanceOf(address(this));
-        if (tokenToBeneficiary_._isETH()) {
-            totalOut += weth9.balanceOf(address(this));
-        }
         uint256 length = exactInputParams.length;
         for (uint256 i; i < length;) {
             ISwapRouter.ExactInputParams memory eip = exactInputParams[i];
