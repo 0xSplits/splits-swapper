@@ -1,6 +1,6 @@
 # splits-swapper
 
-[Docs](https://dev.docs.0xsplits.xyz/core/swapper)
+[Docs](https://docs.0xsplits.xyz/core/swapper)
 
 ## What
 
