@@ -260,12 +260,12 @@ abstract contract Uninitialized_SwapperImplBase is Uninitialized_PausableImplBas
     modifier callerNotFactory(address notFactory_) {
         vm.assume(notFactory_ != address($swapperFactory));
         $notFactory = notFactory_;
-        changePrank(notFactory_);
+        vm.startPrank(notFactory_);
         _;
     }
 
     modifier callerFactory() {
-        changePrank(address($swapperFactory));
+        vm.startPrank(address($swapperFactory));
         _;
     }
 

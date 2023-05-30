@@ -58,9 +58,13 @@ contract Uninitialized_SwapperImplTest is
     /// initializer
     /// -----------------------------------------------------------------------
 
-    function test_revertWhen_callerNotFactory_initializer() public callerNotFactory($notFactory) {
+    function _test_revertWhen_callerNotFactory_initializer() internal {
         vm.expectRevert(Unauthorized.selector);
         $swapper.initializer(_initSwapperParams());
+    }
+
+    function test_revertWhen_callerNotFactory_initializer() public callerNotFactory($notFactory) {
+        _test_revertWhen_callerNotFactory_initializer();
     }
 
     function testFuzz_revertWhen_callerNotFactory_initializer(address caller_, SwapperImpl.InitParams calldata params_)
@@ -68,24 +72,34 @@ contract Uninitialized_SwapperImplTest is
         callerNotFactory(caller_)
     {
         _setUpSwapperState(params_);
-        test_revertWhen_callerNotFactory_initializer();
+
+        _test_revertWhen_callerNotFactory_initializer();
     }
 
-    function test_initializer_setsBeneficiary() public callerFactory {
+    function _test_initializer_setsBeneficiary() internal {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
         $swapper.initializer(initSwapperParams);
         assertEq($swapper.beneficiary(), initSwapperParams.beneficiary);
     }
 
-    function testFuzz_initializer_setsBeneficiary(SwapperImpl.InitParams calldata params_) public callerFactory {
-        _setUpSwapperState(params_);
-        test_initializer_setsBeneficiary();
+    function test_initializer_setsBeneficiary() public callerFactory {
+        _test_initializer_setsBeneficiary();
     }
 
-    function test_initializer_setsTokenToBeneficiary() public callerFactory {
+    function testFuzz_initializer_setsBeneficiary(SwapperImpl.InitParams calldata params_) public callerFactory {
+        _setUpSwapperState(params_);
+
+        _test_initializer_setsBeneficiary();
+    }
+
+    function _test_initializer_setsTokenToBeneficiary() internal {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
         $swapper.initializer(initSwapperParams);
         assertEq($swapper.tokenToBeneficiary(), initSwapperParams.tokenToBeneficiary);
+    }
+
+    function test_initializer_setsTokenToBeneficiary() public callerFactory {
+        _test_initializer_setsTokenToBeneficiary();
     }
 
     function testFuzz_initializer_setsTokenToBeneficiary(SwapperImpl.InitParams calldata params_)
@@ -93,13 +107,18 @@ contract Uninitialized_SwapperImplTest is
         callerFactory
     {
         _setUpSwapperState(params_);
-        test_initializer_setsTokenToBeneficiary();
+
+        _test_initializer_setsTokenToBeneficiary();
     }
 
-    function test_initializer_setsDefaultScaledOfferFactor() public callerFactory {
+    function _test_initializer_setsDefaultScaledOfferFactor() internal {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
         $swapper.initializer(initSwapperParams);
         assertEq($swapper.defaultScaledOfferFactor(), initSwapperParams.defaultScaledOfferFactor);
+    }
+
+    function test_initializer_setsDefaultScaledOfferFactor() public callerFactory {
+        _test_initializer_setsDefaultScaledOfferFactor();
     }
 
     function testFuzz_initializer_setsDefaultScaledOfferFactor(SwapperImpl.InitParams calldata params_)
@@ -107,10 +126,11 @@ contract Uninitialized_SwapperImplTest is
         callerFactory
     {
         _setUpSwapperState(params_);
-        test_initializer_setsDefaultScaledOfferFactor();
+
+        _test_initializer_setsDefaultScaledOfferFactor();
     }
 
-    function test_initializer_setsPairScaledOfferFactors() public callerFactory {
+    function _test_initializer_setsPairScaledOfferFactors() internal {
         SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
         $swapper.initializer(initSwapperParams);
 
@@ -122,6 +142,10 @@ contract Uninitialized_SwapperImplTest is
             initScaledOfferFactors[i] = initSwapperParams.pairScaledOfferFactors[i].scaledOfferFactor;
         }
         assertEq($swapper.getPairScaledOfferFactors(initQuotePairs), initScaledOfferFactors);
+    }
+
+    function test_initializer_setsPairScaledOfferFactors() public callerFactory {
+        _test_initializer_setsPairScaledOfferFactors();
     }
 
     function testFuzz_initializer_setsPairScaledOfferFactors(
@@ -131,17 +155,8 @@ contract Uninitialized_SwapperImplTest is
         _setUpSwapperState(params_);
         delete $setPairScaledOfferFactorParams;
         $setPairScaledOfferFactorParams.push(setPairScaledOfferFactorParams_);
-        SwapperImpl.InitParams memory initSwapperParams = _initSwapperParams();
-        $swapper.initializer(initSwapperParams);
 
-        uint256 length = initSwapperParams.pairScaledOfferFactors.length;
-        QuotePair[] memory initQuotePairs = new QuotePair[](length);
-        uint32[] memory initScaledOfferFactors = new uint32[](length);
-        for (uint256 i; i < length; i++) {
-            initQuotePairs[i] = initSwapperParams.pairScaledOfferFactors[i].quotePair;
-            initScaledOfferFactors[i] = initSwapperParams.pairScaledOfferFactors[i].scaledOfferFactor;
-        }
-        assertEq($swapper.getPairScaledOfferFactors(initQuotePairs), initScaledOfferFactors);
+        _test_initializer_setsPairScaledOfferFactors();
     }
 }
 
@@ -354,7 +369,7 @@ contract Initialized_SwapperImplTest is
         $swapper.setPairScaledOfferFactors($nextSetPairScaledOfferFactorParams);
     }
 
-    function test_setPairScaledOfferFactors_setsPairScaledOfferFactors() public callerOwner {
+    function _test_setPairScaledOfferFactors_setsPairScaledOfferFactors() internal {
         $swapper.setPairScaledOfferFactors($nextSetPairScaledOfferFactorParams);
 
         uint256 length = $nextSetPairScaledOfferFactorParams.length;
@@ -367,19 +382,27 @@ contract Initialized_SwapperImplTest is
         assertEq($swapper.getPairScaledOfferFactors(quotePairs), newScaledOfferFactors);
     }
 
+    function test_setPairScaledOfferFactors_setsPairScaledOfferFactors() public callerOwner {
+        _test_setPairScaledOfferFactors_setsPairScaledOfferFactors();
+    }
+
     function testFuzz_setPairScaledOfferFactors_setsPairScaledOfferFactors(
         SwapperImpl.SetPairScaledOfferFactorParams calldata nextSetPairScaledOfferFactorParams_
     ) public callerOwner {
         delete $nextSetPairScaledOfferFactorParams;
         $nextSetPairScaledOfferFactorParams.push(nextSetPairScaledOfferFactorParams_);
 
-        test_setPairScaledOfferFactors_setsPairScaledOfferFactors();
+        _test_setPairScaledOfferFactors_setsPairScaledOfferFactors();
     }
 
-    function test_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors() public callerOwner {
+    function _test_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors() internal {
         vm.expectEmit();
         emit SetPairScaledOfferFactors($nextSetPairScaledOfferFactorParams);
         $swapper.setPairScaledOfferFactors($nextSetPairScaledOfferFactorParams);
+    }
+
+    function test_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors() public callerOwner {
+        _test_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors();
     }
 
     function testFuzz_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors(
@@ -388,7 +411,7 @@ contract Initialized_SwapperImplTest is
         delete $nextSetPairScaledOfferFactorParams;
         $nextSetPairScaledOfferFactorParams.push(nextSetPairScaledOfferFactorParams_);
 
-        test_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors;
+        _test_setPairScaledOfferFactors_emitsSetPairScaledOfferFactors();
     }
 
     /// -----------------------------------------------------------------------
@@ -437,7 +460,7 @@ contract Paused_Initialized_SwapperImplTest is Initialized_SwapperImplTest, Paus
     }
 
     function testFuzz_revertWhen_paused_flash(address caller_, QuoteParams[] calldata quoteParams_) public paused {
-        changePrank(caller_);
+        vm.startPrank(caller_);
         vm.expectRevert(Paused.selector);
         $swapper.flash(quoteParams_, "");
     }
