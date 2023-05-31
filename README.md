@@ -4,7 +4,7 @@
 
 ## What
 
-Swapper is a payments module that trustlessly & automatically transforms multi-token revenue into a particular output token.
+Swapper is a payments module that trustlessly & automatically transforms multi-token revenue into a single output token
 ![](https://docs.0xsplits.xyz/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fswapper_diagram.2f2890db.png&w=3840&q=75)
 
 ## Why
@@ -22,15 +22,15 @@ Directly with traders via integration contracts required to handle `#flash`'s ca
 
 ### How does it price swaps?
 
-Modularly, via each Swapper's designated [IOracle](https://github.com/0xSplits/splits-oracle/blob/main/src/interfaces/IOracle.sol).
+Modularly, via each Swapper's designated [IOracle](https://github.com/0xSplits/splits-oracle).
 Each Swapper may also apply it's own default & quote-specific scaling factors to said oracle's pricing.
 
 ### How is it governed?
 
 A Swapper's owner, if set, has _FULL CONTROL_ of the deployment.
 It may, at any time for any reason, change the `beneficiary`, `tokenToBeneficiary`, `oracle`, `defaultOfferScaledFactor`, `pairScaledOfferFactors`, as well as execute arbitrary calls on behalf of the Swapper.
-In situations where flows ultimately belong to or benefit more than a single person & immutability is a nonstarter, we strongly recommend using multisigs or DAOs for governance.
-To the extent your oracle has an owner as well, this same logic applies.
+In situations where flows ultimately belong to or benefit more than a single person & immutability is a nonstarter, we strongly recommend using a multisig or DAO for governance.
+To the extent your Oracle has an owner as well, this same logic applies.
 
 ## Lint
 
