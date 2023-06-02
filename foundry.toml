@@ -19,7 +19,7 @@ gas_reports = ['*']
 gas_reports_ignore = []
 offline = false
 optimizer = true
-optimizer_runs = 200
+optimizer_runs = 1_000_000
 verbosity = 0
 ignored_error_codes = [
     'license',
