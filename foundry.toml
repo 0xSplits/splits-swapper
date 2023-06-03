@@ -51,7 +51,7 @@ sparse_mode = false
 
 [[profile.default.fs_permissions]]
 access = 'read'
-path = 'out'
+path = 'script/input'
 
 [profile.default.rpc_storage_caching]
 chains = 'all'
