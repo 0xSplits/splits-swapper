@@ -1,0 +1,5 @@
+{
+  "swapperFactory": "0xa244bbe019cf1ba177ee5a532250be2663fb55ca",
+  "swapRouter": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+  "weth9": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"
+}
