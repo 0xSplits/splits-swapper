@@ -2,7 +2,6 @@
 pragma solidity ^0.8.17;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
-import {IWETH9} from "splits-utils/interfaces/external/IWETH9.sol";
 import {QuoteParams} from "splits-utils/LibQuotes.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {TokenUtils} from "splits-utils/TokenUtils.sol";
@@ -34,11 +33,7 @@ contract UniversalSwap is ISwapperFlashCallback {
         FlashCallbackData flashCallbackData;
     }
 
-    IWETH9 public immutable weth9;
-
-    constructor(IWETH9 weth9_) {
-        weth9 = weth9_;
-    }
+    constructor() {}
 
     /// receive from weth9
     receive() external payable {}
@@ -67,10 +62,6 @@ contract UniversalSwap is ISwapperFlashCallback {
 
         address excessRecipient = flashCallbackData.excessRecipient;
         if (tokenToBeneficiary_._isETH()) {
-            // withdraw WETH from swaps to ETH
-            uint256 weth9Balance = weth9.balanceOf(address(this));
-            weth9.withdraw(weth9Balance);
-
             // send req'd amt to swapper#payback
             SwapperImpl(msg.sender).payback{value: amountToBeneficiary_}();
 
