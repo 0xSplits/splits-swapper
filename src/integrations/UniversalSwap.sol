@@ -13,11 +13,11 @@ import {ISwapperFlashCallback} from "../interfaces/ISwapperFlashCallback.sol";
 import {SwapperImpl} from "../SwapperImpl.sol";
 import {SwapperFactory} from "../SwapperFactory.sol";
 
-/// @title Universal Swapper Integration
+/// @title Universal Swap Integration
 /// @author 0xSplits
 /// @notice Used by EOAs & simple bots to execute `Swapper#flash` with any swap router
 /// @dev This contract uses token = address(0) to refer to ETH.
-contract UniversalSwapper is ISwapperFlashCallback {
+contract UniversalSwap is ISwapperFlashCallback {
     using SafeTransferLib for address;
     using TokenUtils for address;
 
@@ -70,7 +70,7 @@ contract UniversalSwapper is ISwapperFlashCallback {
 
         address excessRecipient = flashCallbackData.excessRecipient;
         if (tokenToBeneficiary_._isETH()) {
-            // withdraw WETH from uni swaps to ETH
+            // withdraw WETH from swaps to ETH
             uint256 weth9Balance = weth9.balanceOf(address(this));
             weth9.withdraw(weth9Balance);
 
@@ -104,7 +104,6 @@ contract UniversalSwapper is ISwapperFlashCallback {
 
             (success, returnData[i]) = calli.to.call{value: calli.value}(calli.data);
 
-            // solhint-disable-next-line
             require(success, string(returnData[i]));
         }
     }
