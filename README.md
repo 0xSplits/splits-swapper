@@ -1,11 +1,11 @@
 # splits-swapper
 
-[Docs](https://docs.0xsplits.xyz/core/swapper)
+[Docs](https://splits.org/protocol/docs/core/swapper)
 
 ## What
 
 Swapper is a payments module that trustlessly & automatically transforms multi-token revenue into a single output token
-![](https://docs.0xsplits.xyz/_next/image?url=%2F_next%2Fstatic%2Fmedia%2Fswapper_diagram.2f2890db.png&w=3840&q=75)
+![](https://splits.org/protocol/docs/_next/image?url=%2Fprotocol%2Fdocs%2F_next%2Fstatic%2Fmedia%2Fswapper_diagram.2f2890db.png&w=3840&q=75)
 
 ## Why
 
